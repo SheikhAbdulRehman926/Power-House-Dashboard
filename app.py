@@ -34,6 +34,21 @@ import plotly.graph_objects as go
 import plotly.io as pio
 import streamlit as st
 
+# Initialize session state for better performance
+if 'data' not in st.session_state:
+    st.session_state.data = None
+if 'computed_results' not in st.session_state:
+    st.session_state.computed_results = {}
+if 'chart_cache' not in st.session_state:
+    st.session_state.chart_cache = {}
+
+# Performance optimization settings
+st.set_page_config(
+    page_title="Powerhouse Dashboard",
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
+
 # ───────────────────────────────────────────────────────────────────────────────
 # VIEWER/ADMIN PUBLISH SYSTEM (password via Environment Variable)
 # ───────────────────────────────────────────────────────────────────────────────
@@ -430,33 +445,89 @@ def _add_bar_value_labels(fig: go.Figure, *, inside=False) -> None:
             )
 
 def _apply_common_layout(fig: go.Figure, title: str) -> None:
+    # Improved layout with better performance and visibility
     fig.update_layout(
         template="plotly_white",
-        title=title,
+        title=dict(
+            text=title,
+            x=0.5,
+            xanchor='center',
+            font=dict(size=16)
+        ),
         hovermode="x unified",
-        margin=dict(t=56, b=10, l=10, r=10),
-        legend_orientation="h",
-        legend_y=-0.18,
-        legend_itemclick="toggle",
-        legend_itemdoubleclick="toggleothers",
-        yaxis=dict(autorange=True, tickformat="~s", showgrid=True, gridcolor="#e5e7eb"),
-        xaxis=dict(showgrid=True, gridcolor="#f1f5f9"),
+        margin=dict(t=56, b=10, l=10, r=10, pad=4),
+        legend=dict(
+            orientation="h",
+            y=-0.18,
+            xanchor="center",
+            x=0.5,
+            itemclick="toggle",
+            itemdoubleclick="toggleothers",
+            bgcolor="rgba(255, 255, 255, 0.9)",
+            bordercolor="rgba(0,0,0,0.1)",
+            borderwidth=1
+        ),
+        yaxis=dict(
+            autorange=True,
+            tickformat="~s",
+            showgrid=True,
+            gridcolor="#e5e7eb",
+            zeroline=True,
+            zerolinecolor="#e5e7eb",
+            zerolinewidth=1
+        ),
+        xaxis=dict(
+            showgrid=True,
+            gridcolor="#f1f5f9",
+            zeroline=True,
+            zerolinecolor="#f1f5f9",
+            zerolinewidth=1
+        ),
         plot_bgcolor="#ffffff",
         paper_bgcolor="#ffffff",
         font=dict(color=TEXT_PRIMARY, size=13),
+        modebar=dict(bgcolor='rgba(255, 255, 255, 0.9)')
+    )
+    
+    # Enable better performance for large datasets
+    fig.update_traces(
+        hovertemplate="<b>%{x}</b><br>" +
+                     "%{y:,.2f}<br>" +
+                     "<extra></extra>",
+        hoverlabel=dict(
+            bgcolor="white",
+            font_size=13,
+            font_family="Arial"
+        )
     )
 
 def _bar_like_from_wide(df: pd.DataFrame, x: str, y: str | List[str], title: str, *,
                         stacked=False, palette: Optional[List[str]] = None,
                         color_map: Optional[Dict[str, str]] = None) -> go.Figure:
-    fig = px.bar(df, x=x, y=y, barmode=("stack" if stacked else "group"),
+    # Ensure y is a list for proper stacking
+    y_cols = [y] if isinstance(y, str) else y
+    
+    fig = px.bar(df, x=x, y=y_cols, barmode=("stack" if stacked else "group"),
                  title=title, color_discrete_sequence=palette)
+    
     if color_map:
         for tr in fig.data:
             if getattr(tr, "type", "") == "bar" and tr.name in color_map:
                 tr.marker.color = color_map[tr.name]
+    
     _apply_common_layout(fig, title)
-    _add_bar_value_labels(fig, inside=stacked)
+    
+    # Adjust label position based on stacking
+    _add_bar_value_labels(fig, inside=(stacked and len(y_cols) > 1))
+    
+    # Ensure proper stacking order and layout
+    if stacked:
+        fig.update_layout(
+            barmode='stack',
+            bargap=0.15,
+            bargroupgap=0.1
+        )
+    
     return fig
 
 def _lollipop_from_series(df: pd.DataFrame, x: str, y: str, title: str, palette: Optional[List[str]] = None) -> go.Figure:
@@ -919,17 +990,79 @@ def build_section_ppt_brand(section_name: str, title_text: str) -> bytes:
     buf = io.BytesIO(); prs.save(buf)
     return buf.getvalue()
 
+# ── UTILITY FUNCTIONS FOR COST AND SAVINGS CALCULATIONS ──────────────────────────
+def calc_costs_pkrs(solar_kwh: float, gas_kwh: float, lesco_kwh: float, rental_kwh: float) -> dict:
+    """
+    Calculate costs for different energy sources in PKR
+    """
+    # These rates are examples - adjust according to your actual rates
+    RATES = {
+        'solar': 15.5,  # PKR per kWh
+        'gas': 18.2,    # PKR per kWh
+        'lesco': 25.0,  # PKR per kWh
+        'rental': 20.0  # PKR per kWh
+    }
+    
+    costs = {
+        'Solar Cost (PKR)': solar_kwh * RATES['solar'],
+        'Gas Cost (PKR)': gas_kwh * RATES['gas'],
+        'LESCO Cost (PKR)': lesco_kwh * RATES['lesco'],
+        'Rental Cost (PKR)': rental_kwh * RATES['rental']
+    }
+    
+    costs['Total Cost (PKR)'] = sum(costs.values())
+    return costs
+
+def compute_solar_savings(solar_kwh: float, baseline: str = "LESCO") -> float:
+    """
+    Calculate savings from solar usage compared to baseline source
+    """
+    # These rates are examples - adjust according to your actual rates
+    RATES = {
+        'LESCO': 25.0,  # PKR per kWh
+        'GAS': 18.2,    # PKR per kWh
+        'RENTAL': 20.0  # PKR per kWh
+    }
+    
+    SOLAR_RATE = 15.5  # PKR per kWh
+    
+    if baseline not in RATES:
+        raise ValueError(f"Invalid baseline source. Must be one of: {', '.join(RATES.keys())}")
+    
+    baseline_cost = solar_kwh * RATES[baseline]
+    solar_cost = solar_kwh * SOLAR_RATE
+    
+    return baseline_cost - solar_cost
+
 # ── REPORT EXPORT HELPERS (PDF/DOCX/PPT consolidated) ──────────────────────────
-import io, os, numpy as np
+import io, os, numpy as np, time
 import plotly.io as pio
 import plotly.graph_objects as go
 
 try:
     from reportlab.pdfgen import canvas as pdfcanvas
     from reportlab.lib.utils import ImageReader
+    from reportlab.lib import colors
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
     _PDF_OK = True
 except Exception:
     _PDF_OK = False
+
+# Cache for data loading
+@st.cache_data(ttl=3600)  # Cache for 1 hour
+def load_data(file_path):
+    return pd.read_excel(file_path)
+
+# Cache for computations
+@st.cache_data
+def compute_statistics(df):
+    return df.describe()
+
+# Cache for visualization data
+@st.cache_data
+def prepare_chart_data(df, x_col, y_cols):
+    return df.groupby(x_col)[y_cols].sum().reset_index()
 
 try:
     from docx import Document
@@ -2005,7 +2138,7 @@ with tab_overview:
         section_title("Energy Mix by Month", level=2)
         if 'sel_year' not in locals() or sel_year is None:
             sel_year = selector_months[-1].year
-            
+
         df_mix = pd.DataFrame(index=months)
         if gas_total is not None:   df_mix["Gas"]   = _align(gas_total)
         if lesco_units is not None: df_mix["LESCO"] = _align(lesco_units)
@@ -3159,5 +3292,3 @@ with tab_report:
 
     section_title("Export Consolidated Report", level=2)
     render_export_row("Report", "Consolidated Report — Overview to Gas", "powerhouse_report_all")
-
-
