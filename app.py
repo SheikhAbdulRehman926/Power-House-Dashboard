@@ -38,6 +38,57 @@ import os
 import pandas as pd
 import streamlit as st
 
+# ───────────────────────────────────────────────────────────────────────────────
+# STACKED-BAR HELPERS (add once, below imports)
+# ───────────────────────────────────────────────────────────────────────────────
+@st.cache_data(show_spinner=False)
+def _to_long_for_stack(df, x_col, ycols, month_fmt=None, dayfirst=True):
+    tmp = df.copy()
+    # flatten multiindex columns if present
+    if isinstance(tmp.columns, pd.MultiIndex):
+        tmp.columns = [" ".join(map(str, c)).strip() for c in tmp.columns.values]
+
+    # keep only requested columns
+    kept_y = [c for c in ycols if c in tmp.columns]
+    tmp = tmp[[c for c in [x_col] + kept_y if c in tmp.columns]].copy()
+
+    # force numeric
+    for c in kept_y:
+        tmp[c] = pd.to_numeric(tmp[c], errors="coerce").fillna(0)
+
+    # month ordering
+    parsed = (pd.to_datetime(tmp[x_col], format=month_fmt, errors="coerce")
+              if month_fmt else pd.to_datetime(tmp[x_col], errors="coerce", dayfirst=dayfirst))
+    tmp["_sort_month"] = parsed.dt.to_period("M")
+
+    long_df = tmp.melt(id_vars=[x_col, "_sort_month"],
+                       value_vars=kept_y,
+                       var_name="variable", value_name="value")\
+                 .sort_values("_sort_month")
+    x_order = long_df[x_col].astype(str).drop_duplicates().tolist()
+    return long_df, x_order
+
+@st.cache_data(show_spinner=False)
+def _make_stacked_bar(long_df, x_col, y_col="value", color_col="variable", x_order=None, show_values=True):
+    fig = px.bar(long_df, x=x_col, y=y_col, color=color_col,
+                 category_orders={x_col: (x_order or [])})
+    fig.update_layout(
+        barmode="stack", bargap=0.12, bargroupgap=0.02,
+        legend_title_text="", margin=dict(l=10, r=10, t=50, b=30),
+        template="plotly_white"
+    )
+    fig.update_yaxes(title=None, separatethousands=True)
+    fig.update_xaxes(title=None)
+    if show_values:
+        fig.update_traces(texttemplate="<b>%{y:,.0f}</b>",
+                          textposition="inside", cliponaxis=False)
+    return fig
+
+def _overlay_totals_text(fig, x_vals, totals):
+    fig.add_scatter(x=x_vals, y=totals, mode="text", name="Total",
+                    text=[f"<b>{v:,.0f}</b>" for v in totals],
+                    textposition="top center", hoverinfo="skip")
+
 @st.cache_data(ttl=600, show_spinner=False)
 def _read_excel_cached(path: str, sheet_name: str, _mtime_bust_cache: float):
     """
@@ -2121,49 +2172,87 @@ with tab_overview:
             render_fig(fig_d)
 
     # ENERGY MIX
-    if selector_months:
-        section_title("Energy Mix by Month", level=2)
-        if 'sel_year' not in locals() or sel_year is None:
-            sel_year = selector_months[-1].year
+# ───────────────────────────────────────────────────────────────────────────────
+# ENERGY MIX (drop-in replacement)
+# ───────────────────────────────────────────────────────────────────────────────
+if selector_months:
+    section_title("Energy Mix by Month", level=2)
 
-        df_mix = pd.DataFrame(index=months)
-        if gas_total is not None:   df_mix["Gas"]   = _align(gas_total)
-        if lesco_units is not None: df_mix["LESCO"] = _align(lesco_units)
-        if solar_total is not None: df_mix["Solar"] = _align(solar_total)
-        df_mix = df_mix.loc[[m for m in df_mix.index if m.year == sel_year]]
-        df_mix = df_mix.replace(0, np.nan).dropna(how="all").fillna(0.0)
+    # pick a year if not chosen yet
+    if 'sel_year' not in locals() or sel_year is None:
+        sel_year = selector_months[-1].year
 
-        if not df_mix.empty:
-            df_plot = df_mix.reset_index().rename(columns={df_mix.reset_index().columns[0]: "Month"})
-            ycols_all = [c for c in ["Gas", "LESCO", "Solar"] if c in df_plot.columns]
-            ycols = st.multiselect("Energy sources", options=ycols_all, default=ycols_all, key="mix_sources_pick")
-            COLOR_MAP_ENERGY = {"Gas": "#06B6D4", "LESCO": "#1F2937", "Solar": "#F59E0B"}
-            fallback = brand_palette("mix", len(ycols))
-            base_pal = [COLOR_MAP_ENERGY.get(n, fallback[i]) for i, n in enumerate(ycols)]
-            pal_fixed, color_map_fixed = color_controls(ycols, "mix_colors", base_pal)
-            color_map_fixed = {n: color_map_fixed.get(n, base_pal[i]) for i, n in enumerate(ycols)}
+    # assemble wide table
+    df_mix = pd.DataFrame(index=months)
+    if gas_total is not None:   df_mix["Gas"]   = _align(gas_total)
+    if lesco_units is not None: df_mix["LESCO"] = _align(lesco_units)
+    if solar_total is not None: df_mix["Solar"] = _align(solar_total)
 
-            ctype = st.selectbox("Mix chart type",
-                                 ["Stacked Bar", "Bar", "Line", "Area (Mountain)"],
-                                 index=0, key="mix_layout_overview")
-            title_mix = f"Energy Mix — {sel_year}"
-            if ctype == "Bar":
-                fig_mix = _bar_like_from_wide(df_plot, "Month", ycols, title_mix,
-                                              stacked=False, palette=pal_fixed, color_map=color_map_fixed)
-            elif ctype == "Stacked Bar":
-                fig_mix = _bar_like_from_wide(df_plot, "Month", ycols, title_mix,
-                                              stacked=True, palette=pal_fixed, color_map=color_map_fixed)
-                totals = df_plot[ycols].sum(axis=1).values.astype(float)
-                _overlay_totals_text(fig_mix, x=df_plot["Month"], totals=totals)
-                _add_visibility_dropdown_for_totals(fig_mix, df_plot, ycols, len(fig_mix.data)-1)
-            elif ctype == "Line":
-                fig_mix = _line_from_wide(df_plot, "Month", ycols, title_mix, palette=pal_fixed)
-            else:
-                fig_mix = _area_from_wide(df_plot, "Month", ycols, title_mix, palette=pal_fixed)
+    # keep only selected year, drop all-null rows
+    df_mix = df_mix.loc[[m for m in df_mix.index if m.year == sel_year]]
+    df_mix = df_mix.replace(0, np.nan).dropna(how="all").fillna(0.0)
 
-            fig_mix.update_yaxes(title_text="kWh", ticksuffix=" kWh", showgrid=True, gridcolor="#e5e7eb", nticks=12)
-            fig_mix.update_layout(height=520)
-            render_fig(fig_mix)
+    if not df_mix.empty:
+        # make a plotting frame
+        df_plot = df_mix.reset_index().rename(columns={df_mix.reset_index().columns[0]: "Month"})
+
+        # ---- CRUCIAL: numeric + ordered month labels ----
+        # coerce to numeric (avoids “string” stacks)
+        for c in ("Gas", "LESCO", "Solar"):
+            if c in df_plot.columns:
+                df_plot[c] = pd.to_numeric(df_plot[c], errors="coerce").fillna(0.0)
+
+        # build pretty month labels and make them ordered categorical for correct stacking order
+        df_plot["MonthLabel"] = pd.to_datetime(df_plot["Month"]).dt.strftime("%b %Y")
+        month_order = df_plot["MonthLabel"].tolist()
+        df_plot["MonthLabel"] = pd.Categorical(df_plot["MonthLabel"], categories=month_order, ordered=True)
+
+        # user pick (keeps your UI)
+        ycols_all = [c for c in ["Gas", "LESCO", "Solar"] if c in df_plot.columns]
+        ycols = st.multiselect("Energy sources", options=ycols_all, default=ycols_all, key="mix_sources_pick")
+
+        # colors (keeps your scheme)
+        COLOR_MAP_ENERGY = {"Gas": "#06B6D4", "LESCO": "#1F2937", "Solar": "#F59E0B"}
+        fallback = brand_palette("mix", len(ycols))
+        base_pal = [COLOR_MAP_ENERGY.get(n, fallback[i]) for i, n in enumerate(ycols)]
+        pal_fixed, color_map_fixed = color_controls(ycols, "mix_colors", base_pal)
+        color_map_fixed = {n: color_map_fixed.get(n, base_pal[i]) for i, n in enumerate(ycols)}
+
+        # chart type (keeps your options)
+        ctype = st.selectbox("Mix chart type",
+                             ["Stacked Bar", "Bar", "Line", "Area (Mountain)"],
+                             index=0, key="mix_layout_overview")
+        title_mix = f"Energy Mix — {sel_year}"
+
+        # use ordered MonthLabel for all plots; totals computed from selected series only
+        if ctype == "Bar":
+            fig_mix = _bar_like_from_wide(df_plot, "MonthLabel", ycols, title_mix,
+                                          stacked=False, palette=pal_fixed, color_map=color_map_fixed)
+        elif ctype == "Stacked Bar":
+            fig_mix = _bar_like_from_wide(df_plot, "MonthLabel", ycols, title_mix,
+                                          stacked=True, palette=pal_fixed, color_map=color_map_fixed)
+
+            # ensure bars are stacked & labels sit inside
+            fig_mix.update_layout(barmode="stack")
+            fig_mix.update_traces(texttemplate="<b>%{y:,.0f}</b>", textposition="inside", selector=dict(type="bar"))
+
+            # totals as text (not another bar)
+            totals = df_plot[ycols].sum(axis=1).values.astype(float)
+            _overlay_totals_text(fig_mix, x=df_plot["MonthLabel"], totals=totals)
+            _add_visibility_dropdown_for_totals(fig_mix, df_plot, ycols, len(fig_mix.data)-1)
+
+        elif ctype == "Line":
+            fig_mix = _line_from_wide(df_plot, "MonthLabel", ycols, title_mix, palette=pal_fixed)
+        else:
+            fig_mix = _area_from_wide(df_plot, "MonthLabel", ycols, title_mix, palette=pal_fixed)
+
+        # tidy axes + enforce month order on the x-axis
+        fig_mix.update_xaxes(title_text=None, categoryorder="array", categoryarray=month_order)
+        fig_mix.update_yaxes(title_text="kWh", ticksuffix=" kWh", showgrid=True, gridcolor="#e5e7eb", nticks=12)
+        fig_mix.update_layout(height=520)
+
+        render_fig(fig_mix)
+
 
     st.divider()
     render_export_row("Overview", "Overview — Powerhouse Dashboard", "overview_powerhouse")
@@ -2458,10 +2547,19 @@ with tab_savings:
 with tab_expense:
     begin_section("Expenses")
     section_title("Expenses & Unit Costs", level=2)
+
+    # -----------------------------
+    # Build wide table (force numeric)
+    # -----------------------------
     df_exp = pd.DataFrame({"Month": months})
-    if expense_lesco is not None: df_exp["LESCO Bill (₨)"] = expense_lesco.values
-    if expense_gas is not None:   df_exp["Gas Bill (₨)"] = expense_gas.values
-    if expense_total is not None: df_exp["Total Expense (₨)"] = expense_total.values
+    if expense_lesco is not None:
+        df_exp["LESCO Bill (₨)"] = pd.to_numeric(expense_lesco.values, errors="coerce")
+    if expense_gas is not None:
+        df_exp["Gas Bill (₨)"]   = pd.to_numeric(expense_gas.values,   errors="coerce")
+    if expense_total is not None:
+        df_exp["Total Expense (₨)"] = pd.to_numeric(expense_total.values, errors="coerce")
+
+    # Remove all-zero rows later; keep selection list clean
     ycols_all = [c for c in df_exp.columns if c != "Month"]
     if ycols_all:
         ycols_pick = st.multiselect(
@@ -2470,7 +2568,9 @@ with tab_expense:
             default=ycols_all,
             key="expense_series_pick",
         )
+
         if ycols_pick:
+            # Hide zeros so empty months drop out cleanly
             df_exp2 = df_exp.copy()
             df_exp2[ycols_pick] = df_exp2[ycols_pick].replace(0, np.nan)
             df_exp2 = df_exp2.dropna(subset=ycols_pick, how="all")
@@ -2481,27 +2581,68 @@ with tab_expense:
                     index=0,
                     key="expense_layout",
                 )
-                default_map = {"LESCO Bill (₨)": LESCO_TEAL, "Gas Bill (₨)": GAS_CRIMSON, "Total Expense (₨)": SLATE}
+
+                # Colors (keeps your theme)
+                default_map = {
+                    "LESCO Bill (₨)": LESCO_TEAL,
+                    "Gas Bill (₨)"  : GAS_CRIMSON,
+                    "Total Expense (₨)": SLATE,
+                }
                 base_palette = [default_map.get(c, PURPLE) for c in ycols_pick]
                 pal, custom_map = color_controls(ycols_pick, "expense_colors", base_palette)
-                color_map = {c: custom_map.get(c, default_map.get(c, pal[i % len(pal)])) for i, c in enumerate(ycols_pick)}
+                color_map = {c: custom_map.get(c, default_map.get(c, pal[i % len(pal)]))
+                             for i, c in enumerate(ycols_pick)}
+
+                title = "Monthly Expenses (₨)"
 
                 if layout == "Bar":
-                    fig_e = _bar_like_from_wide(df_exp2, "Month", ycols_pick, "Monthly Expenses (₨)", stacked=False, palette=pal, color_map=color_map)
-                elif layout == "Stacked Bar" and len(ycols_pick) > 1:
-                    fig_e = _bar_like_from_wide(df_exp2, "Month", ycols_pick, "Monthly Expenses (₨)", stacked=True, palette=pal, color_map=color_map)
-                    _overlay_totals_text(fig_e, x=df_exp2["Month"], totals=df_exp2[ycols_pick].sum(axis=1).values)
+                    # Bar can include Total as its own bar
+                    fig_e = _bar_like_from_wide(
+                        df_exp2, "Month", ycols_pick, title,
+                        stacked=False, palette=pal, color_map=color_map
+                    )
+
+                elif layout == "Stacked Bar":
+                    # IMPORTANT: stack only component bills (exclude Total)
+                    stackables = [c for c in ycols_pick if "total" not in c.lower()]
+                    if len(stackables) >= 2:
+                        fig_e = _bar_like_from_wide(
+                            df_exp2, "Month", stackables, title,
+                            stacked=True, palette=pal, color_map=color_map
+                        )
+                        # Totals = sum of stacked components (not the "Total" column)
+                        totals = df_exp2[stackables].sum(axis=1, numeric_only=True).values
+                        _overlay_totals_text(fig_e, x=df_exp2["Month"], totals=totals)
+                    else:
+                        # If user picked only 1 series or only "Total", fall back gracefully
+                        fig_e = _bar_like_from_wide(
+                            df_exp2, "Month", stackables or ycols_pick, title,
+                            stacked=False, palette=pal, color_map=color_map
+                        )
+
                 elif layout == "Line":
-                    fig_e = _line_from_wide(df_exp2, "Month", ycols_pick, "Monthly Expenses (₨)", palette=pal)
-                else:
-                    fig_e = _area_from_wide(df_exp2, "Month", ycols_pick, "Monthly Expenses (₨)", palette=pal)
-                _apply_common_layout(fig_e, "Monthly Expenses (₨)")
+                    fig_e = _line_from_wide(df_exp2, "Month", ycols_pick, title, palette=pal)
+
+                else:  # "Area (Mountain)"
+                    fig_e = _area_from_wide(df_exp2, "Month", ycols_pick, title, palette=pal)
+
+                _apply_common_layout(fig_e, title)
                 render_fig(fig_e)
 
+    # -----------------------------
+    # Avg cost (unchanged)
+    # -----------------------------
     if pkr_per_kwh is not None:
-        pk_df = pd.DataFrame({"Month": months, "Avg Cost (₨/kWh)": pkr_per_kwh.values}).replace(0, np.nan).dropna()
+        pk_df = pd.DataFrame({
+            "Month": months,
+            "Avg Cost (₨/kWh)": pd.to_numeric(pkr_per_kwh.values, errors="coerce")
+        }).replace(0, np.nan).dropna()
         if not pk_df.empty:
-            layout_c = st.selectbox("Avg cost chart layout", ["Line","Area (Mountain)","Bar","Lollipop"], index=0, key="avgcost_layout")
+            layout_c = st.selectbox(
+                "Avg cost chart layout",
+                ["Line","Area (Mountain)","Bar","Lollipop"],
+                index=0, key="avgcost_layout"
+            )
             pal_cost, _ = color_controls(["Avg Cost (₨/kWh)"], "avgcost_colors", ["#DC2626"])
             if layout_c == "Bar":
                 fig_c = _bar_like_from_wide(pk_df, "Month", "Avg Cost (₨/kWh)", "Overall Cost (₨/kWh)", stacked=False, palette=pal_cost)
@@ -2633,11 +2774,19 @@ with tab_gas:
         st.info("Gas consumption data not found.")
     else:
         df_g = gas_block.copy()
+
+        # Ensure Month exists and is ordered chronologically
         if "Month" not in df_g.columns:
             df_g.insert(0, "Month", df_full[("Month", "Month")])
+        # Sort months by actual date (handles "Jan 2025", "2025-01-01", etc.)
+        _m = pd.to_datetime(df_g["Month"], errors="coerce", dayfirst=True)
+        df_g["_sort_month"] = _m.dt.to_period("M")
+        df_g = df_g.sort_values("_sort_month").drop(columns="_sort_month")
+        df_g["Month"] = df_g["Month"].astype(str)
 
+        # ---------- helpers ----------
         def pick(cols: List[str], candidates: List[str]) -> Optional[str]:
-            low = {c.lower(): c for c in cols}
+            low = {str(c).lower(): c for c in cols}
             for cand in candidates:
                 if cand in cols:
                     return cand
@@ -2651,6 +2800,18 @@ with tab_gas:
                         return c
             return None
 
+        def _clean_candidates(cols: List[str]) -> List[str]:
+            ok = []
+            for c in cols:
+                cl = str(c).strip().lower()
+                if cl in ("month", "total", "grand total"):
+                    continue
+                if cl.startswith("unnamed") or cl in ("aa",):
+                    continue
+                ok.append(c)
+            return ok
+        # -----------------------------
+
         known_total_candidates = [
             "TOTAL GAS", "TOTAL GAS (M3)", "TOTAL GAS (SM3)", "TOTAL (MMBTU)", "TOTAL (MMBtu)",
             "TOTAL CONSUMPTION", "TOTAL", "GAS VOLUME", "TOTAL (M3)", "TOTAL (SM3)"
@@ -2662,6 +2823,9 @@ with tab_gas:
         c_total_gas = pick(list(df_g.columns), known_total_candidates)
         c_gas_rate  = pick(list(df_g.columns), known_rate_candidates)
 
+        # ───────────────────────────────────────────────────────────────────────
+        # GAS by USE — clean stack (no Total/Rate/Aa/Unnamed), numeric + totals
+        # ───────────────────────────────────────────────────────────────────────
         maybe_use_cols = []
         for col in df_g.columns:
             if col == "Month":
@@ -2676,6 +2840,8 @@ with tab_gas:
 
         uses_numeric = []
         if maybe_use_cols:
+            # remove junk columns and coerce numeric
+            maybe_use_cols = _clean_candidates(maybe_use_cols)
             dfu = df_g[["Month"] + maybe_use_cols].copy()
             for c in maybe_use_cols:
                 dfu[c] = pd.to_numeric(dfu[c], errors="coerce")
@@ -2683,8 +2849,14 @@ with tab_gas:
             uses_numeric = [c for c in maybe_use_cols if dfu[c].notna().any()]
 
             if uses_numeric:
-                uses_pick = st.multiselect("Gas 'use' series (MMBtu)", options=uses_numeric, default=uses_numeric, key="gas_use_pick")
+                uses_pick = st.multiselect(
+                    "Gas 'use' series (MMBtu)",
+                    options=uses_numeric,
+                    default=uses_numeric,
+                    key="gas_use_pick"
+                )
                 if uses_pick:
+                    # color palette (keeps your fixed colors where known)
                     def key(s: str) -> str: return str(s).strip().lower()
                     COLOR_MAP_FIXED = {
                         "power plant (mmbtu)": CYAN,
@@ -2693,7 +2865,10 @@ with tab_gas:
                         "steam generator petpak (mmbtu)": SOLAR_GOLD,
                         "flame treatment gpak (mmbtu)": BLUE_LIGHT,
                     }
-                    base_pal = [COLOR_MAP_FIXED.get(key(c), brand_palette("mix", len(uses_pick))[i]) for i, c in enumerate(uses_pick)]
+                    base_pal = [
+                        COLOR_MAP_FIXED.get(key(c), brand_palette("mix", len(uses_pick))[i])
+                        for i, c in enumerate(uses_pick)
+                    ]
                     pal_use, _ = color_controls(uses_pick, "gas_use_colors", base_pal)
 
                     layout_use = st.selectbox(
@@ -2705,6 +2880,10 @@ with tab_gas:
 
                     title_use = "Gas Consumption by Use (MMBtu)"
                     df_plot_use = dfu[["Month"] + uses_pick].copy()
+
+                    # always ensure numeric for plotting
+                    for c in uses_pick:
+                        df_plot_use[c] = pd.to_numeric(df_plot_use[c], errors="coerce").fillna(0)
 
                     if layout_use == "Bar":
                         fig_use = _bar_like_from_wide(df_plot_use, "Month", uses_pick, title_use, stacked=False, palette=pal_use)
@@ -2723,6 +2902,9 @@ with tab_gas:
                     _apply_common_layout(fig_use, title_use)
                     render_fig(fig_use)
 
+        # ───────────────────────────────────────────────────────────────────────
+        # TOTAL GAS + RATE (bar + line on secondary axis)
+        # ───────────────────────────────────────────────────────────────────────
         dfg = None
         if c_total_gas is None and c_gas_rate is None:
             st.warning("No recognizable 'Total Gas' or 'Gas Rate' columns found in the GAS CONSUMPTION block.")
@@ -3301,3 +3483,4 @@ with tab_report:
 
     section_title("Export Consolidated Report", level=2)
     render_export_row("Report", "Consolidated Report — Overview to Gas", "powerhouse_report_all")
+
