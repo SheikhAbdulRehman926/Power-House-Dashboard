@@ -33,6 +33,126 @@ import plotly.express as px
 import plotly.graph_objects as go
 import plotly.io as pio
 import streamlit as st
+# --- CACHED EXCEL LOADER (add once near the top of app.py) ---
+import os
+import pandas as pd
+import streamlit as st
+
+@st.cache_data(ttl=600, show_spinner=False)
+def _read_excel_cached(path: str, sheet_name: str, _mtime_bust_cache: float):
+    """
+    Reads an Excel sheet and caches the result.
+    _mtime_bust_cache is only used to bust the cache when the file changes.
+    """
+    return pd.read_excel(path, sheet_name=sheet_name, engine="openpyxl")
+
+
+# ---------- STACKED BAR HELPERS (add once near top of app.py) ----------
+import pandas as pd
+import numpy as np
+
+@st.cache_data(show_spinner=False)
+def _to_long_for_stack(
+    df: pd.DataFrame,
+    x_col: str,
+    ycols: list[str],
+    month_fmt: str | None = None,   # e.g. "%b-%Y" if your months look like "Jul-2025"
+    dayfirst: bool = True
+):
+    """Return (long_df, x_order) for stacked bars.
+    - Ensures ycols are numeric (coerce errors to 0)
+    - Handles MultiIndex columns
+    - Creates a monthly sort key so x axis is ordered chronologically
+    """
+    tmp = df.copy()
+
+    # Flatten a MultiIndex header if present (prevents e.g. df['Month'] returning a DataFrame)
+    if isinstance(tmp.columns, pd.MultiIndex):
+        tmp.columns = [" ".join(map(str, c)).strip() for c in tmp.columns.values]
+
+    # Keep only the columns we need and silently drop missing ycols
+    kept_y = [c for c in ycols if c in tmp.columns]
+    cols = [x_col] + kept_y
+    tmp = tmp.loc[:, [c for c in cols if c in tmp.columns]].copy()
+
+    # Force numeric values
+    for c in kept_y:
+        tmp[c] = pd.to_numeric(tmp[c], errors="coerce").fillna(0)
+
+    # Parse month for a stable axis order
+    if month_fmt:
+        parsed = pd.to_datetime(tmp[x_col], format=month_fmt, errors="coerce")
+    else:
+        parsed = pd.to_datetime(tmp[x_col], errors="coerce", dayfirst=dayfirst)
+
+    tmp["_sort_month"] = parsed.dt.to_period("M")
+
+    long_df = tmp.melt(
+        id_vars=[x_col, "_sort_month"],
+        value_vars=kept_y,
+        var_name="variable",
+        value_name="value"
+    )
+
+    # Order months chronologically as they appear
+    long_df = long_df.sort_values("_sort_month")
+    x_order = (
+        long_df[x_col]
+        .astype(str)
+        .drop_duplicates()
+        .tolist()
+    )
+    return long_df, x_order
+
+
+@st.cache_data(show_spinner=False)
+def make_stacked_bar(
+    long_df: pd.DataFrame,
+    x_col: str,
+    y_col: str = "value",
+    color_col: str = "variable",
+    x_order: list[str] | None = None,
+    show_values: bool = False,
+):
+    """Build a robust stacked bar with Plotly that works even with 1 series."""
+    import plotly.express as px
+
+    data = long_df.copy()
+
+    # If there is only one series selected, a stacked bar still works,
+    # but labels outside can get slow. We allow toggling labels.
+    text = ".3s" if show_values else None
+
+    fig = px.bar(
+        data,
+        x=x_col,
+        y=y_col,
+        color=color_col,
+        category_orders={x_col: x_order or []},
+        text_auto=text
+    )
+
+    fig.update_layout(
+        barmode="stack",
+        bargap=0.12,
+        bargroupgap=0.02,
+        legend_title_text="",
+        margin=dict(l=10, r=10, t=50, b=30),
+    )
+
+    # Nicer axis formatting
+    fig.update_yaxes(separatethousands=True, title=None)
+    fig.update_xaxes(title=None)
+
+    if show_values:
+        # Keep labels readable; when negative values exist, inside is safer
+        if (data[y_col] < 0).any():
+            fig.update_traces(textposition="inside")
+        else:
+            fig.update_traces(textposition="outside", cliponaxis=False)
+
+    return fig
+# ---------- END STACKED BAR HELPERS ----------
 
 # ───────────────────────────────────────────────────────────────────────────────
 # VIEWER/ADMIN PUBLISH SYSTEM (password via Environment Variable)
@@ -3038,6 +3158,28 @@ with tab_compare:
                     elif chart_type == "Bar":
                         fig_cmp = _bar_like_from_wide(df_cmp, "Month", labels, title, stacked=False, palette=palette)
                     elif chart_type == "Stacked Bar":
+                        # 1) Which columns should stack here?
+                        ycols = ["Gas", "LESCO", "Solar"]   # <-- change per tab (whatever series you stack)
+
+                        # 2) Prep (handles numeric, month order, etc.)
+                        long_df, month_order = _to_long_for_stack(
+                        df_full,              # the DataFrame used on this tab
+                        x_col="Month",        # change if your x is named differently
+                        ycols=ycols,
+                        # month_fmt="%b-%Y",  # UNCOMMENT & set if your Month is like "Jul-2025"
+                        dayfirst=True         # set False if your dates are US-style
+                        )
+
+                        # 3) Make chart
+                        fig = make_stacked_bar(
+                        long_df,
+                        x_col="Month",
+                        x_order=month_order,
+                        show_values=st.checkbox("Show labels", value=False, key="labels_"+st.session_state.get("tab_key","mix"))
+                        )
+
+                        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": True})
+
                         fig_cmp = _bar_like_from_wide(df_cmp, "Month", labels, title, stacked=True, palette=palette)
                         totals = df_cmp[labels].sum(axis=1).values.astype(float)
                         _overlay_totals_text(fig_cmp, x=df_cmp["Month"], totals=totals)
