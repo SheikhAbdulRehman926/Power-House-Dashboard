@@ -2005,6 +2005,7 @@ with tab_overview:
         section_title("Energy Mix by Month", level=2)
         if 'sel_year' not in locals() or sel_year is None:
             sel_year = selector_months[-1].year
+                months = pd.to_datetime(months, errors="coerce").to_period("M").to_timestamp()
 
         df_mix = pd.DataFrame(index=months)
         if gas_total is not None:   df_mix["Gas"]   = _align(gas_total)
@@ -3159,3 +3160,4 @@ with tab_report:
 
     section_title("Export Consolidated Report", level=2)
     render_export_row("Report", "Consolidated Report — Overview to Gas", "powerhouse_report_all")
+
