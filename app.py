@@ -42,8 +42,13 @@ import streamlit as st
 
 # Performance optimization - Add caching and session state to prevent unnecessary reruns
 @st.cache_data(ttl=300)  # Cache for 5 minutes
-def load_data_cached(path):
+def load_data_cached(path, file_mtime=None, cache_buster=None, force_reload=False):
     """Load data with caching to prevent unnecessary reloads"""
+    # force_reload parameter allows bypassing cache completely
+    return load_sheet(path)
+
+def load_data_fresh(path):
+    """Load data without any caching - always fresh"""
     return load_sheet(path)
 
 @st.cache_data(ttl=600)  # Cache for 10 minutes
@@ -2011,18 +2016,66 @@ def compute_solar_savings_blended(df_full: pd.DataFrame) -> pd.DataFrame:
 # ───────────────────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.title("Controls")
+    
+    # Clear Cache button at the top
+    st.subheader("Cache Management")
+    
+    # Show cache status
+    if st.session_state.get("app_restarted", False):
+        cache_status = "🔄 Restarted"
+    elif st.session_state.get("cache_cleared", False):
+        cache_status = "🟡 Cleared"
+    else:
+        cache_status = "🟢 Active"
+    st.caption(f"Cache Status: {cache_status}")
+    
+    # Helpful instruction
+    st.caption("💡 Use this to reboot the app and forget all previous data. Then upload your updated file.")
+    
+    if st.button("🗑️ Clear Cache", use_container_width=True, help="Clear all cached data and restart app to ensure fresh data loading"):
+        # Generate a unique cache buster timestamp
+        import time
+        cache_buster = int(time.time() * 1000)  # milliseconds timestamp
+        
+        # Clear all cached functions
+        load_data_cached.clear()
+        get_available_years_cached.clear()
+        get_available_months_cached.clear()
+        render_fig_cached.clear()
+        
+        # Try experimental cache clearing
+        try:
+            st.cache_data.clear()
+        except:
+            pass
+        
+        # Clear ALL session state to completely restart the app
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
+        
+        # Reset essential session state with cache buster
+        st.session_state["cache_cleared"] = True
+        st.session_state["app_restarted"] = True
+        st.session_state["cache_buster"] = cache_buster
+        
+        st.success("🔄 App restarted! All data cleared. Upload your updated file now.")
+        st.rerun()
+    
     st.subheader("Access")
 
     # Viewer/Admin toggle is always visible
     mode = st.radio("Select mode", ["Viewer", "Administrator"], index=0, key="app_mode")
 
     # Show which file is currently live for viewers
-    current_path = _get_latest_file_path()
-    if current_path and os.path.exists(current_path):
-        ts = datetime.datetime.fromtimestamp(os.path.getmtime(current_path)).strftime("%Y-%m-%d %H:%M")
-        st.caption(f"Currently showing: **{os.path.basename(current_path)}**  \nLast updated: {ts}")
+    if st.session_state.get("app_restarted", False):
+        st.info("🔄 App restarted! Please upload your updated file in Administrator mode.")
     else:
-        st.caption("No published data yet. Please publish from Administrator mode.")
+        current_path = _get_latest_file_path()
+        if current_path and os.path.exists(current_path):
+            ts = datetime.datetime.fromtimestamp(os.path.getmtime(current_path)).strftime("%Y-%m-%d %H:%M")
+            st.caption(f"Currently showing: **{os.path.basename(current_path)}**  \nLast updated: {ts}")
+        else:
+            st.caption("No published data yet. Please publish from Administrator mode.")
 
     is_admin = False
     if mode == "Administrator":
@@ -2043,6 +2096,11 @@ with st.sidebar:
             if up is not None and st.button("Publish for all viewers", use_container_width=True):
                 pub = _publish_uploaded_xlsx(up)
                 st.success(f"Published **{os.path.basename(pub)}**. Viewers will now see the updated dashboard.")
+                # Clear cache to ensure new file is loaded
+                load_data_cached.clear()
+                get_available_years_cached.clear()
+                get_available_months_cached.clear()
+                render_fig_cached.clear()
                 # Remember this path for THIS session and refresh
                 st.session_state["active_source_path"] = pub
                 st.rerun()
@@ -2063,7 +2121,21 @@ if not active_path or not os.path.exists(active_path):
 # ───────────────────────────────────────────────────────────────────────────────
 # Load the Excel into df_full (your load_sheet knows the correct sheet)
 # ───────────────────────────────────────────────────────────────────────────────
-df_full = load_data_cached(active_path)
+# Get file modification time to ensure cache invalidation when file changes
+file_mtime = os.path.getmtime(active_path) if os.path.exists(active_path) else 0
+cache_buster = st.session_state.get("cache_buster", 0)
+force_reload = st.session_state.get("app_restarted", False)
+
+# Use fresh loading if cache was cleared, otherwise use cached loading
+if force_reload:
+    df_full = load_data_fresh(active_path)
+else:
+    df_full = load_data_cached(active_path, file_mtime, cache_buster, force_reload)
+
+# Reset cache status when data is loaded
+if df_full is not None:
+    st.session_state["cache_cleared"] = False
+    st.session_state["app_restarted"] = False
 if df_full is None or (hasattr(df_full, "empty") and df_full.empty):
     st.error("Loaded file has no rows. Please check the Excel and re-upload in Administrator mode.")
     st.stop()
