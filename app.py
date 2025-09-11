@@ -23,6 +23,12 @@ from __future__ import annotations
 from typing import Dict, List, Optional, Tuple
 from collections import defaultdict
 
+# PIL Decompression Bomb Protection - Prevent large image errors
+import PIL.Image
+PIL.Image.MAX_IMAGE_PIXELS = 200000000  # Set limit to 200M pixels (higher than default 178M)
+
+# Performance optimization - Caching functions will be defined after streamlit import
+
 import base64
 import io
 import os
@@ -33,6 +39,29 @@ import plotly.express as px
 import plotly.graph_objects as go
 import plotly.io as pio
 import streamlit as st
+
+# Performance optimization - Add caching and session state to prevent unnecessary reruns
+@st.cache_data(ttl=300)  # Cache for 5 minutes
+def load_data_cached(path):
+    """Load data with caching to prevent unnecessary reloads"""
+    return load_sheet(path)
+
+@st.cache_data(ttl=600)  # Cache for 10 minutes
+def get_available_years_cached(df):
+    """Get available years with caching"""
+    return sorted(df['Year'].unique(), reverse=True)
+
+@st.cache_data(ttl=600)  # Cache for 10 minutes
+def get_available_months_cached(df):
+    """Get available months with caching"""
+    return sorted(df['Month'].unique(), reverse=True)
+
+# Initialize session state for tab performance
+if 'current_tab' not in st.session_state:
+    st.session_state.current_tab = 'Overview'
+
+if 'tab_loaded' not in st.session_state:
+    st.session_state.tab_loaded = set()
 
 # Initialize session state for better performance
 if 'data' not in st.session_state:
@@ -160,24 +189,60 @@ CFG_PLOTLY = {
 # SECTION CAPTURE (for PDF, DOCX, PPT)
 # ───────────────────────────────────────────────────────────────────────────────
 SECTION_FIGS: Dict[str, List[go.Figure]] = defaultdict(list)
+SECTION_CARDS: Dict[str, List[Dict]] = defaultdict(list)  # Store metric cards data
 CURRENT_SECTION: List[str] = [""]  # tiny stack to allow nested usage if ever needed
 
 def begin_section(name: str):
     """Set the current section; figures rendered after this will be captured."""
     CURRENT_SECTION[0] = name
     SECTION_FIGS[name] = []  # reset capture list on every render of a tab (fresh run)
+    SECTION_CARDS[name] = []  # reset cards list on every render of a tab (fresh run)
 
 def capture_fig(fig: go.Figure):
     name = CURRENT_SECTION[0] or "Page"
     SECTION_FIGS[name].append(fig)
 
-def render_fig(fig: go.Figure):
-    """Consistent chart rendering + capture for PDF/DOCX/PPT. Optionally remove selectors."""
-    if EXPORT_CLEAN and fig.layout.updatemenus:
+def capture_metric_cards(cards_data: List[Dict], section_title: str = ""):
+    """Capture metric cards data for PDF export.
+    
+    Args:
+        cards_data: List of dictionaries with keys: label, value, delta, delta_color
+        section_title: Title for the card section (e.g., "Yearly Highlights", "Monthly Highlights")
+    """
+    name = CURRENT_SECTION[0] or "Page"
+    SECTION_CARDS[name].append({"cards": cards_data, "title": section_title})
+
+# Cache figure rendering to prevent unnecessary regenerations
+@st.cache_data(ttl=300)
+def render_fig_cached(fig_dict, export_clean=False):
+    """Render a cached Plotly figure to prevent unnecessary regenerations"""
+    fig = go.Figure(fig_dict)
+    if export_clean and fig.layout.updatemenus:
         d = fig.to_dict()
         d["layout"]["updatemenus"] = []
         fig = go.Figure(d)
-    st.plotly_chart(fig, use_container_width=True, config=CFG_PLOTLY)
+    return fig
+
+def render_fig(fig: go.Figure, key: str = None):
+    """Consistent chart rendering + capture for PDF/DOCX/PPT. Optionally remove selectors."""
+    # Generate unique key if not provided
+    if key is None:
+        import hashlib
+        fig_str = str(fig.to_dict())
+        key = f"chart_{hashlib.md5(fig_str.encode()).hexdigest()[:8]}"
+    
+    # Use cached rendering for better performance
+    try:
+        fig_dict = fig.to_dict()
+        cached_fig = render_fig_cached(fig_dict, EXPORT_CLEAN)
+        st.plotly_chart(cached_fig, use_container_width=True, config=CFG_PLOTLY, key=key)
+    except Exception:
+        # Fallback to direct rendering if caching fails
+        if EXPORT_CLEAN and fig.layout.updatemenus:
+            d = fig.to_dict()
+            d["layout"]["updatemenus"] = []
+            fig = go.Figure(d)
+        st.plotly_chart(fig, use_container_width=True, config=CFG_PLOTLY, key=key)
     capture_fig(fig)
 
 # ───────────────────────────────────────────────────────────────────────────────
@@ -385,6 +450,178 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+
+# ───────────────────────────────────────────────────────────────────────────────
+# COMPACT CARDS TOGGLE
+# ───────────────────────────────────────────────────────────────────────────────
+compact_cards = st.toggle("Compact cards", value=True, key="ui_compact_cards")
+
+# Add compact cards CSS if enabled
+if compact_cards:
+    st.markdown("""
+    <style>
+        /* Ultra-Tiny KPI Cards - Much Smaller */
+        .metric-card {
+            background: white;
+            padding: 4px 6px;
+            border-radius: 8px;
+            border: 1px solid #e5e7eb;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+            height: 40px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .metric-card::before {
+            content: "";
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 6px;
+            height: 100%;
+            background: linear-gradient(to bottom, #ff6b35, #1e40af);
+            border-radius: 14px 0 0 14px;
+        }
+        
+        .metric-card .metric-title {
+            font-size: 8px;
+            font-weight: 500;
+            color: #6b7280;
+            margin-bottom: 8px;
+            line-height: 1.2;
+            margin-left: 8px;
+        }
+        
+        .metric-card .metric-value {
+            font-size: 12px;
+            font-weight: 600;
+            color: #1f2937;
+            line-height: 1.2;
+            margin-bottom: 12px;
+            margin-left: 8px;
+        }
+        
+        .metric-card .metric-delta {
+            font-size: 7px;
+            font-weight: 500;
+            line-height: 1.0;
+            margin-left: 8px;
+        }
+        
+        .metric-card .metric-delta.positive {
+            color: #059669;
+        }
+        
+        .metric-card .metric-delta.negative {
+            color: #dc2626;
+        }
+        
+        /* Compact Controls */
+        .compact-select {
+            height: 36px;
+            font-size: 12px;
+        }
+        
+        .compact-select label {
+            font-size: 12px;
+            margin-bottom: 4px;
+        }
+        
+        /* Cards Grid */
+        .cards-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+            margin-bottom: 20px;
+        }
+        
+        @media (max-width: 768px) {
+            .cards-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+        
+        @media (max-width: 480px) {
+            .cards-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+        
+        /* Mega-Massive Charts - Even Bigger */
+        .chart-container {
+            background: white;
+            padding: 2.5rem;
+            border-radius: 1.25rem;
+            border: 1px solid #e5e7eb;
+            box-shadow: 0 8px 16px rgba(0,0,0,0.25);
+            margin-bottom: 30px;
+            min-height: 3000px;
+        }
+        
+        .chart-container.stacked {
+            min-height: 3600px;
+        }
+        
+        .chart-container.comparison {
+            min-height: 4200px;
+        }
+        
+        .chart-container.single {
+            min-height: 3300px;
+        }
+        
+        /* Chart Typography */
+        .chart-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 10px;
+        }
+        
+        /* Swapped Layout - Charts Get Card Space, Cards Get Chart Space */
+        .content-container {
+            display: flex;
+            flex-direction: column;
+            gap: 30px;
+        }
+        
+        .cards-section {
+            flex: 0 0 auto;
+            max-height: 5vh;
+            overflow: hidden;
+        }
+        
+        .charts-section {
+            flex: 1;
+            min-height: 3000px;
+        }
+        
+        /* Proper spacing between cards and charts */
+        .cards-to-charts-spacing {
+            margin-bottom: 40px;
+        }
+        
+        @media (max-width: 768px) {
+            .charts-section {
+                min-height: 3000px;
+            }
+            .cards-section {
+                max-height: 8vh;
+            }
+        }
+        
+        @media (max-width: 480px) {
+            .charts-section {
+                min-height: 2500px;
+            }
+            .cards-section {
+                max-height: 6vh;
+            }
+        }
+    </style>
+    """, unsafe_allow_html=True)
 
 # ───────────────────────────────────────────────────────────────────────────────
 # HEADER
@@ -1449,13 +1686,14 @@ def build_section_pdf(section_name: str, title_text: str,
                       petpak_logo_data_uri: Optional[str],
                       gpak_logo_data_uri: Optional[str]) -> bytes:
     figs = SECTION_FIGS.get(section_name, [])
+    cards_data = SECTION_CARDS.get(section_name, [])
     buf = io.BytesIO()
     page_w, page_h = landscape(A4)
     c = canvas.Canvas(buf, pagesize=(page_w, page_h))
 
-    # Margins & header area
-    M_L, M_R, M_T, M_B = 28, 28, 28, 28
-    header_h = 70
+    # Margins & header area - optimized to reduce empty space
+    M_L, M_R, M_T, M_B = 20, 20, 20, 20  # Reduced margins for more content space
+    header_h = 60  # Reduced header height for more content space
     usable_w = page_w - M_L - M_R
     usable_h = page_h - M_T - M_B - header_h
 
@@ -1500,55 +1738,168 @@ def build_section_pdf(section_name: str, title_text: str,
     c.setFillColorRGB(0.09, 0.09, 0.12)
     c.drawCentredString(page_w / 2, page_h - 46, title_text)
 
-    if not figs:
-        c.showPage()
-        c.save()
-        return buf.getvalue()
+    # Start content area
+    current_y = page_h - header_h - 20
+    
+    # Render metric cards first
+    if cards_data:
+        for card_group_data in cards_data:
+            if not card_group_data:
+                continue
+            
+            # Extract cards and title
+            if isinstance(card_group_data, dict) and 'cards' in card_group_data:
+                cards = card_group_data['cards']
+                card_section_title = card_group_data.get('title', '')
+            else:
+                # Backward compatibility for old format
+                cards = card_group_data
+                card_section_title = ''
+            
+            if not cards:
+                continue
+            
+            # Draw section title if provided - dashboard style
+            if card_section_title:
+                c.setFont("Helvetica-Bold", 14)  # Dashboard section title size
+                c.setFillColorRGB(0.1, 0.1, 0.1)
+                c.drawString(M_L, current_y - 15, card_section_title)
+                current_y -= 25  # Proper spacing for dashboard appearance
+                
+            # Calculate card dimensions - ultra-tiny design
+            card_width = (usable_w - 30) / len(cards)  # 30 for spacing
+            card_height = 40  # Ultra-tiny height
+            
+            # Draw cards - compact design matching screenshot
+            for i, card in enumerate(cards):
+                x = M_L + i * (card_width + 8)  # Reduced spacing (6-8px)
+                y = current_y - card_height
+                
+                # Draw card background - compact style
+                c.setFillColorRGB(1.0, 1.0, 1.0)  # Pure white background
+                c.rect(x, y, card_width, card_height, fill=1, stroke=1)
+                c.setFillColorRGB(0.9, 0.9, 0.9)  # Light gray border
+                c.rect(x, y, card_width, card_height, fill=0, stroke=1)
+                
+                # Draw gradient accent bar on left side (6px width, orange→blue gradient)
+                c.setFillColorRGB(1.0, 0.42, 0.21)  # Orange start
+                c.rect(x, y, 6, card_height, fill=1, stroke=0)
+                c.setFillColorRGB(0.12, 0.25, 0.69)  # Blue end
+                c.rect(x, y + card_height/2, 6, card_height/2, fill=1, stroke=0)
+                
+                # Card content - compact typography
+                c.setFillColorRGB(0.1, 0.1, 0.1)  # Dark text
+                
+                # Label - ultra-tiny style with increased spacing
+                c.setFont("Helvetica", 8)  # Ultra-tiny label font
+                label_text = card['label']
+                # Replace currency symbols that might appear as black boxes
+                label_text = label_text.replace('₨', 'Rs').replace('■', 'Rs')
+                
+                label_lines = label_text.split(' — ')
+                if len(label_lines) > 1:
+                    c.drawString(x + 8, y + card_height - 8, label_lines[0])  # Year/period
+                    c.drawString(x + 8, y + card_height - 18, label_lines[1])  # Metric name (increased spacing)
+                else:
+                    c.drawString(x + 8, y + card_height - 12, label_text)  # Increased spacing
+                
+                # Value - ultra-tiny style with increased spacing
+                c.setFont("Helvetica-Bold", 12)  # Ultra-tiny value font
+                c.drawString(x + 8, y + card_height - 30, card['value'])  # Increased spacing from label
+                
+                # Delta (if exists) - ultra-tiny style
+                if card.get('delta') and card['delta'] != '':
+                    c.setFont("Helvetica", 7)  # Ultra-tiny delta font
+                    delta_color = card.get('delta_color', 'normal')
+                    if delta_color == 'inverse':
+                        c.setFillColorRGB(0.1, 0.7, 0.1)  # Green for good changes
+                    else:
+                        c.setFillColorRGB(0.7, 0.1, 0.1)  # Red for bad changes
+                    
+                    # Add arrow based on delta
+                    delta_text = card['delta']
+                    if delta_text.startswith('+'):
+                        delta_text = '▲ ' + delta_text
+                    elif delta_text.startswith('-'):
+                        delta_text = '▼ ' + delta_text
+                    
+                    c.drawString(x + 8, y + card_height - 38, delta_text)  # Adjusted for increased spacing
+                    c.setFillColorRGB(0.1, 0.1, 0.1)  # Reset color
+            
+            current_y -= card_height + 10  # Minimal spacing - maximum space for charts
+    
+    # Render charts
+    if figs:
+        images: List[Tuple[int, int, bytes]] = []
+        for fig in figs:
+            _force_month_labels(fig)
+            try:
+                # Generate mega-massive charts - Even bigger PDF space utilization
+                png = pio.to_image(fig, format="png", scale=7, width=6000, height=3600)
+            except Exception:
+                try:
+                    png = pio.to_image(fig, format="png", scale=6, width=5500, height=3400)
+                except Exception:
+                    try:
+                        png = pio.to_image(fig, format="png", scale=5, width=5000, height=3000)
+                    except Exception:
+                        try:
+                            png = pio.to_image(fig, format="png", scale=4, width=4500, height=2800)
+                        except Exception:
+                            png = pio.to_image(fig, format="png", scale=3, width=4000, height=2500)
+            # Add PIL decompression bomb protection
+            try:
+                img = ImageReader(io.BytesIO(png))
+                iw, ih = img.getSize()
+                images.append((iw, ih, png))
+            except Exception as e:
+                # If image is too large, try with smaller dimensions
+                print(f"Warning: Chart too large, using fallback dimensions. Error: {e}")
+                try:
+                    # Fallback to smaller dimensions
+                    png_fallback = pio.to_image(fig, format="png", scale=1, width=1200, height=700)
+                    img = ImageReader(io.BytesIO(png_fallback))
+                    iw, ih = img.getSize()
+                    images.append((iw, ih, png_fallback))
+                except Exception as fallback_error:
+                    print(f"Error: Could not generate chart image. Error: {fallback_error}")
+                    continue
 
-    images: List[Tuple[int, int, bytes]] = []
-    for fig in figs:
-        _force_month_labels(fig)
-        try:
-            png = pio.to_image(fig, format="png", scale=2, width=1200, height=700)
-        except Exception:
-            png = pio.to_image(fig, format="png")
-        img = ImageReader(io.BytesIO(png))
-        iw, ih = img.getSize()
-        images.append((iw, ih, png))
+        n = len(images)
+        if n == 1:
+            cols, rows = 1, 1
+        elif n in (2, 3):
+            cols, rows = 2, 2
+        elif n == 4:
+            cols, rows = 2, 2
+        elif n in (5, 6):
+            cols, rows = 3, 2
+        elif n in (7, 8, 9):
+            cols, rows = 3, 3
+        else:
+            cols, rows = 3, 3
 
-    n = len(images)
-    if n == 1:
-        cols, rows = 1, 1
-    elif n in (2, 3):
-        cols, rows = 2, 2
-    elif n == 4:
-        cols, rows = 2, 2
-    elif n in (5, 6):
-        cols, rows = 3, 2
-    elif n in (7, 8, 9):
-        cols, rows = 3, 3
-    else:
-        cols, rows = 3, 3
+        # Adjust available height for charts - fill MAXIMUM PDF space
+        chart_area_h = current_y - M_B - 1  # Ultra-minimal margin to fill maximum space
+        cell_w = (usable_w - (cols - 1) * 3) / cols  # Ultra-minimal spacing to maximize chart size
+        cell_h = (chart_area_h - (rows - 1) * 3) / rows  # Ultra-minimal spacing to maximize chart size
+        start_x = M_L
+        start_y = current_y - 1  # Ultra-minimal margin to fill maximum space
 
-    cell_w = (usable_w - (cols - 1) * 10) / cols
-    cell_h = (usable_h - (rows - 1) * 10) / rows
-    start_x = M_L
-    start_y = M_B + usable_h
-
-    idx = 0
-    for r in range(rows):
-        y_top = start_y - r * (cell_h + 10)
-        y_img = y_top - cell_h
-        for ccol in range(cols):
-            if idx >= n:
-                break
-            iw, ih, png = images[idx]
-            img = ImageReader(io.BytesIO(png))
-            scale = min(cell_w / iw, cell_h / ih)
-            draw_w, draw_h = iw * scale, ih * scale
-            x_img = start_x + ccol * (cell_w + 10) + (cell_w - draw_w) / 2
-            c.drawImage(img, x_img, y_img + (cell_h - draw_h) / 2, draw_w, draw_h, mask='auto')
-            idx += 1
+        idx = 0
+        for r in range(rows):
+            y_top = start_y - r * (cell_h + 3)  # Ultra-minimal spacing to fill maximum space
+            y_img = y_top - cell_h
+            for ccol in range(cols):
+                if idx >= n:
+                    break
+                iw, ih, png = images[idx]
+                img = ImageReader(io.BytesIO(png))
+                scale = min(cell_w / iw, cell_h / ih)
+                draw_w, draw_h = iw * scale, ih * scale
+                x_img = start_x + ccol * (cell_w + 3) + (cell_w - draw_w) / 2  # Ultra-minimal spacing to fill maximum space
+                c.drawImage(img, x_img, y_img + (cell_h - draw_h) / 2, draw_w, draw_h, mask='auto')
+                idx += 1
 
     c.showPage()
     c.save()
@@ -1792,7 +2143,7 @@ if not active_path or not os.path.exists(active_path):
 # ───────────────────────────────────────────────────────────────────────────────
 # Load the Excel into df_full (your load_sheet knows the correct sheet)
 # ───────────────────────────────────────────────────────────────────────────────
-df_full = load_sheet(active_path)
+df_full = load_data_cached(active_path)
 if df_full is None or (hasattr(df_full, "empty") and df_full.empty):
     st.error("Loaded file has no rows. Please check the Excel and re-upload in Administrator mode.")
     st.stop()
@@ -1953,7 +2304,12 @@ with tab_overview:
     begin_section("Overview")
     section_title("Yearly Highlights", level=2)
     if selector_months:
-        years_available = sorted({d.year for d in selector_months})
+        # Use cached year selection to prevent unnecessary reruns
+        @st.cache_data(ttl=600)
+        def get_years_cached(months):
+            return sorted({d.year for d in months})
+        
+        years_available = get_years_cached(selector_months)
         default_year = last_month.year if last_month is not None else years_available[-1]
         sel_year = st.selectbox("Select year", options=years_available,
                                 index=years_available.index(default_year),
@@ -2005,21 +2361,32 @@ with tab_overview:
         fd1p = lambda d: "—" if np.isnan(d) else f"{d:+.1f}"
 
         c1, c2, c3, c4 = st.columns(4)
+        yearly_cards = []
+        
         def metric_delta_value(col, label, curr, prev, value_formatter, delta_formatter=None, inverse=False):
             def _fmt(v):
                 return value_formatter(v) if v is not None and not (isinstance(v, float) and np.isnan(v)) else "—"
             if prev is None or (isinstance(prev, float) and np.isnan(prev)):
-                col.metric(label=label, value=_fmt(curr), delta=""); return
+                col.metric(label=label, value=_fmt(curr), delta="")
+                yearly_cards.append({"label": label, "value": _fmt(curr), "delta": "", "delta_color": "normal"})
+                return
             if curr is None or (isinstance(curr, float) and np.isnan(curr)):
-                col.metric(label=label, value="—", delta=""); return
+                col.metric(label=label, value="—", delta="")
+                yearly_cards.append({"label": label, "value": "—", "delta": "", "delta_color": "normal"})
+                return
             delta = curr - prev
             delta_txt = delta_formatter(delta) if delta_formatter else f"{delta:+,.0f}"
-            col.metric(label=label, value=_fmt(curr), delta=delta_txt, delta_color=("inverse" if inverse else "normal"))
+            delta_color = "inverse" if inverse else "normal"
+            col.metric(label=label, value=_fmt(curr), delta=delta_txt, delta_color=delta_color)
+            yearly_cards.append({"label": label, "value": _fmt(curr), "delta": delta_txt, "delta_color": delta_color})
 
         metric_delta_value(c1, f"{sel_year} — Total Generation (kWh)", y_kwh, p_kwh if prev_year else None, f0, fd0, inverse=False)
         metric_delta_value(c2, f"{sel_year} — Total Energy Expense (₨)", y_exp, p_exp if prev_year else None, f0, fd0, inverse=True)
         metric_delta_value(c3, f"{sel_year} — Average Cost (₨/kWh)", y_cost, p_cost if prev_year else None, f2, fd2, inverse=True)
         metric_delta_value(c4, f"{sel_year} — Solar Share (%)", y_share, p_share if prev_year else None, f1p, fd1p, inverse=False)
+        
+        # Capture yearly cards for PDF
+        capture_metric_cards(yearly_cards, "Yearly Highlights")
     else:
         st.info("No dated rows found. Please ensure the 'Month' column is populated.")
 
@@ -2057,21 +2424,32 @@ with tab_overview:
         fd0, fd2, fd1p = (lambda d: f"{d:+,.0f}"), (lambda d: f"{d:+,.2f}"), (lambda d: "—" if np.isnan(d) else f"{d:+.1f}")
 
         cA, cB, cC, cD = st.columns(4)
+        monthly_cards = []
+        
         def metric_delta_value(col, label, curr, prev, value_formatter, delta_formatter=None, inverse=False):
             def _fmt(v):
                 return value_formatter(v) if v is not None and not (isinstance(v, float) and np.isnan(v)) else "—"
             if prev is None or (isinstance(prev, float) and np.isnan(prev)):
-                col.metric(label=label, value=_fmt(curr), delta=""); return
+                col.metric(label=label, value=_fmt(curr), delta="")
+                monthly_cards.append({"label": label, "value": _fmt(curr), "delta": "", "delta_color": "normal"})
+                return
             if curr is None or (isinstance(curr, float) and np.isnan(curr)):
-                col.metric(label=label, value="—", delta=""); return
+                col.metric(label=label, value="—", delta="")
+                monthly_cards.append({"label": label, "value": "—", "delta": "", "delta_color": "normal"})
+                return
             delta = curr - prev
             delta_txt = delta_formatter(delta) if delta_formatter else f"{delta:+,.0f}"
-            col.metric(label=label, value=_fmt(curr), delta=delta_txt, delta_color=("inverse" if inverse else "normal"))
+            delta_color = "inverse" if inverse else "normal"
+            col.metric(label=label, value=_fmt(curr), delta=delta_txt, delta_color=delta_color)
+            monthly_cards.append({"label": label, "value": _fmt(curr), "delta": delta_txt, "delta_color": delta_color})
 
         metric_delta_value(cA, "Total Generation (kWh)", kwh_curr, kwh_prev, f0, fd0, inverse=False)
         metric_delta_value(cB, "Total Energy Expense (₨)", exp_curr_val, exp_prev_val, f0, fd0, inverse=True)
         metric_delta_value(cC, "Average Cost (₨/kWh)", cpk_curr_val, cpk_prev_val, f2, fd2, inverse=True)
         metric_delta_value(cD, "Solar Share (%)", mix_curr, mix_prev, f1p, fd1p, inverse=False)
+        
+        # Capture monthly cards for PDF
+        capture_metric_cards(monthly_cards, "Monthly Highlights")
 
     # Composition
     if selector_months:
@@ -2131,7 +2509,7 @@ with tab_overview:
                                color_discrete_map=color_map_use, title=f"Total Generation — {sel_year}")
                 _add_bar_value_labels(fig_d)
             _apply_common_layout(fig_d, f"Total Generation — {sel_year}")
-            render_fig(fig_d)
+            render_fig(fig_d, key="overview_generation")
 
     # ENERGY MIX
     if selector_months:
@@ -2176,7 +2554,7 @@ with tab_overview:
 
             fig_mix.update_yaxes(title_text="kWh", ticksuffix=" kWh", showgrid=True, gridcolor="#e5e7eb", nticks=12)
             fig_mix.update_layout(height=520)
-            render_fig(fig_mix)
+            render_fig(fig_mix, key="overview_energy_mix")
 
     st.divider()
     render_export_row("Overview", "Overview — Powerhouse Dashboard", "overview_powerhouse")
@@ -2210,7 +2588,7 @@ with tab_sources:
                     fig = _lollipop_from_series(df_b.rename(columns={"UNITS (KWH)":"kWh"}), "Month", "kWh", f"{title} — kWh", palette=pal)
                 fig.update_yaxes(title_text="kWh", ticksuffix=" kWh")
                 _apply_common_layout(fig, f"{title} — kWh")
-                render_fig(fig)
+                render_fig(fig, key=f"sources_{title.lower().replace(' ', '_')}")
 
         # Efficiency (M3/KWH or kWh/MMBtu) — series multiselect + colors
         y2_candidates = [c for c in ["M3/KWH", "kWh/MMBtu"] if c in df_e.columns]
@@ -2235,7 +2613,7 @@ with tab_sources:
                     else:
                         metric0 = picked[0]
                         fig2 = _lollipop_from_series(df_l.rename(columns={metric0:"Value"}), "Month", "Value", f"{title} — {metric0}", palette=pal[:1])
-                    render_fig(fig2)
+                    render_fig(fig2, key=f"sources_{title.lower().replace(' ', '_')}_efficiency")
 
     _engine_block("PETPAK Engine 01", blocks.get("PETPAK ENGINE #01"), "petpak1", context="petpak_engine")
     _engine_block("GPAK Engine 01", blocks.get("GPAK ENGINE #01"), "gpak1", context="gpak_engine_1")
@@ -2258,7 +2636,7 @@ with tab_sources:
                 fig = _lollipop_from_series(df_r.rename(columns={"UNITS (KWH)":"kWh"}), "Month", "kWh", "Rental Engine — kWh", palette=pal)
             fig.update_yaxes(title_text="kWh", ticksuffix=" kWh")
             _apply_common_layout(fig, "Rental Engine — kWh")
-            render_fig(fig)
+            render_fig(fig, key="sources_rental_engine")
 
     # Solar: series multiselect + colors
     solar_block = blocks.get("SOLAR GENERATION")
@@ -2285,7 +2663,7 @@ with tab_sources:
                     _overlay_totals_text(fig, x=df_s2["Month"], totals=totals_here)
                 fig.update_yaxes(title_text="kWh", ticksuffix=" kWh")
                 _apply_common_layout(fig, "Solar Generation (kWh)")
-                render_fig(fig)
+                render_fig(fig, key="sources_solar_generation")
 
     # LESCO — single series color
     lesco_block = blocks.get("LESCO GENERATION")
@@ -2304,7 +2682,7 @@ with tab_sources:
                 fig = _lollipop_from_series(df_l.rename(columns={"UNITS (KWH)":"kWh"}), "Month", "kWh", "LESCO — kWh", palette=pal)
             fig.update_yaxes(title_text="kWh", ticksuffix=" kWh")
             _apply_common_layout(fig, "LESCO — kWh")
-            render_fig(fig)
+            render_fig(fig, key="sources_lesco")
 
     st.divider()
     render_export_row("Energy Sources", "Energy Sources — Powerhouse Dashboard", "energy_sources_powerhouse")
@@ -2344,12 +2722,16 @@ with tab_savings:
             prev_row = sv2.iloc[prev_idx] if prev_idx >= sv2.index.min() else None
 
             c1, c2 = st.columns(2)
+            savings_cards = []
 
             def metric_with_delta(col, label, curr, prev):
                 if prev is None or np.isnan(prev):
                     col.metric(label, f"{curr:,.0f}")
+                    savings_cards.append({"label": label, "value": f"{curr:,.0f}", "delta": "", "delta_color": "normal"})
                 else:
-                    col.metric(label, f"{curr:,.0f}", delta=f"{(curr - prev):+,.0f}")
+                    delta_val = curr - prev
+                    col.metric(label, f"{curr:,.0f}", delta=f"{delta_val:+,.0f}")
+                    savings_cards.append({"label": label, "value": f"{curr:,.0f}", "delta": f"{delta_val:+,.0f}", "delta_color": "normal"})
 
             metric_with_delta(
                 c1,
@@ -2363,6 +2745,9 @@ with tab_savings:
                 float(row.get("Solar_kWh", np.nan)),
                 float(prev_row["Solar_kWh"]) if prev_row is not None else np.nan,
             )
+            
+            # Capture savings cards for PDF
+            capture_metric_cards(savings_cards, "Solar Savings & Production")
 
             # Monthly savings (BLENDED)
             df_m = sv2.rename(columns={"Saving_vs_GAS": "Savings (₨)"})
@@ -2381,7 +2766,7 @@ with tab_savings:
                 sfig = _area_from_wide(df_m, "Month", ycols, "Solar Savings — Monthly (Blended LESCO+GAS)", palette=pal_savings)
             else:
                 sfig = _line_from_wide(df_m, "Month", ycols, "Solar Savings — Monthly (Blended LESCO+GAS)", palette=pal_savings)
-            render_fig(sfig)
+            render_fig(sfig, key="savings_monthly_blended")
 
             # Cumulative savings (BLENDED)
             sv_cum = sv2.copy()
@@ -2400,7 +2785,7 @@ with tab_savings:
                 sfig2 = _area_from_wide(df_c, "Month", ycols, "Solar Savings — Cumulative (Blended LESCO+GAS)", palette=pal_savings_c)
             else:
                 sfig2 = _line_from_wide(df_c, "Month", ycols, "Solar Savings — Cumulative (Blended LESCO+GAS)", palette=pal_savings_c)
-            render_fig(sfig2)
+            render_fig(sfig2, key="savings_cumulative_blended")
 
             # SOLAR PRODUCTION
             section_title("Solar Production", level=3)
@@ -2420,7 +2805,7 @@ with tab_savings:
                 pfig = _area_from_wide(df_prod_m, "Month", prod_y, "Solar Production — Monthly", palette=pal_prod)
             else:
                 pfig = _line_from_wide(df_prod_m, "Month", prod_y, "Solar Production — Monthly", palette=pal_prod)
-            render_fig(pfig)
+            render_fig(pfig, key="savings_solar_production_monthly")
 
             sv_prod_cum = sv2[["Month", "Solar_kWh"]].copy()
             sv_prod_cum["Solar_kWh"] = sv_prod_cum["Solar_kWh"].cumsum()
@@ -2438,7 +2823,7 @@ with tab_savings:
                 pfig2 = _area_from_wide(df_prod_c, "Month", prod_y, "Solar Production — Cumulative", palette=pal_prod_c)
             else:
                 pfig2 = _line_from_wide(df_prod_c, "Month", prod_y, "Solar Production — Cumulative", palette=pal_prod_c)
-            render_fig(pfig2)
+            render_fig(pfig2, key="savings_solar_production_cumulative")
 
             # EXPLANATION (BLENDED METHOD)
             section_title("How these savings are calculated (Blended LESCO + GAS)", level=3)
@@ -2509,7 +2894,7 @@ with tab_expense:
                 else:
                     fig_e = _area_from_wide(df_exp2, "Month", ycols_pick, "Monthly Expenses (₨)", palette=pal)
                 _apply_common_layout(fig_e, "Monthly Expenses (₨)")
-                render_fig(fig_e)
+                render_fig(fig_e, key="expenses_monthly")
 
     if pkr_per_kwh is not None:
         pk_df = pd.DataFrame({"Month": months, "Avg Cost (₨/kWh)": pkr_per_kwh.values}).replace(0, np.nan).dropna()
@@ -2524,7 +2909,7 @@ with tab_expense:
                 fig_c = _lollipop_from_series(pk_df.rename(columns={"Avg Cost (₨/kWh)":"Value"}), "Month", "Value", "Overall Cost (₨/kWh)", palette=pal_cost)
             else:
                 fig_c = _line_from_wide(pk_df, "Month", ["Avg Cost (₨/kWh)"], "Overall Cost (₨/kWh)", palette=pal_cost)
-            render_fig(fig_c)
+            render_fig(fig_c, key="expenses_avg_cost")
 
     st.divider()
     render_export_row("Expenses", "Expenses — Powerhouse Dashboard", "expenses_powerhouse")
@@ -2602,7 +2987,7 @@ with tab_prodcons:
                         plot_bgcolor="#ffffff", paper_bgcolor="#ffffff",
                         font=dict(color=TEXT_PRIMARY, size=13),
                     )
-                render_fig(fig_pc)
+                render_fig(fig_pc, key=f"prodcons_{title_prefix.lower().replace(' ', '_')}")
 
         ycols_eff_all = [c for c in [c_eff, c_pkrkg] if c]
         if ycols_eff_all:
@@ -2626,7 +3011,7 @@ with tab_prodcons:
                     else:
                         metric0 = picked[0]
                         fig_eff = _lollipop_from_series(df2.rename(columns={metric0: "Value"}), "Month", "Value", f"{title_prefix} — {metric0}", palette=pal[:1])
-                    render_fig(fig_eff)
+                    render_fig(fig_eff, key=f"prodcons_{title_prefix.lower().replace(' ', '_')}_efficiency")
 
     render_prod_cons(blocks.get("PETPAK PVC"), "PETPAK", brand="PETPAK")
     render_prod_cons(blocks.get("GPAK PVC"), "GPAK", brand="GPAK")
@@ -2734,7 +3119,7 @@ with tab_gas:
 
                     fig_use.update_yaxes(title_text="MMBtu", ticksuffix=" MMBtu")
                     _apply_common_layout(fig_use, title_use)
-                    render_fig(fig_use)
+                    render_fig(fig_use, key="gas_usage")
 
         dfg = None
         if c_total_gas is None and c_gas_rate is None:
@@ -2788,7 +3173,7 @@ with tab_gas:
                     plot_bgcolor="#ffffff", paper_bgcolor="#ffffff",
                     font=dict(color=TEXT_PRIMARY, size=13),
                 )
-                render_fig(fig_g)
+                render_fig(fig_g, key="gas_rate")
 
         with st.expander("Show gas consumption data table", expanded=False):
             if dfg is not None and not dfg.empty:
@@ -2861,11 +3246,25 @@ with tab_forecast:
 
         def _metrics_row(total, solar, gas, lesco, rental, label):
             c1,c2,c3,c4,c5 = st.columns(5)
+            forecast_cards = []
+            
             c1.metric(f"{label}: Total (kWh)", f"{total:,.0f}")
+            forecast_cards.append({"label": f"{label}: Total (kWh)", "value": f"{total:,.0f}", "delta": "", "delta_color": "normal"})
+            
             c2.metric("Solar (kWh)",  f"{solar:,.0f}", delta=f"{(solar/max(total,1))*100:,.1f}% share")
+            forecast_cards.append({"label": "Solar (kWh)", "value": f"{solar:,.0f}", "delta": f"{(solar/max(total,1))*100:,.1f}% share", "delta_color": "normal"})
+            
             c3.metric("Gas (kWh)",    f"{gas:,.0f}",   delta=f"{(gas/max(total,1))*100:,.1f}% share")
+            forecast_cards.append({"label": "Gas (kWh)", "value": f"{gas:,.0f}", "delta": f"{(gas/max(total,1))*100:,.1f}% share", "delta_color": "normal"})
+            
             c4.metric("LESCO (kWh)",  f"{lesco:,.0f}", delta=f"{(lesco/max(total,1))*100:,.1f}% share")
+            forecast_cards.append({"label": "LESCO (kWh)", "value": f"{lesco:,.0f}", "delta": f"{(lesco/max(total,1))*100:,.1f}% share", "delta_color": "normal"})
+            
             c5.metric("Rental (kWh)", f"{rental:,.0f}",delta=f"{(rental/max(total,1))*100:,.1f}% share")
+            forecast_cards.append({"label": "Rental (kWh)", "value": f"{rental:,.0f}", "delta": f"{(rental/max(total,1))*100:,.1f}% share", "delta_color": "normal"})
+            
+            # Capture forecast cards for PDF
+            capture_metric_cards(forecast_cards, "Forecast Values")
 
         def _table_chart(df_fx, title, cmap):
             st.dataframe(
@@ -3021,6 +3420,8 @@ with tab_forecast:
                     elif "compute_solar_savings" in globals():
                         sv = compute_solar_savings(solar_kwh, baseline="LESCO")
                         st.metric("Estimated Solar Savings (PKR)", f"{sv:,.0f}")
+                        # Capture individual metric for PDF
+                        capture_metric_cards([{"label": "Estimated Solar Savings (PKR)", "value": f"{sv:,.0f}", "delta": "", "delta_color": "normal"}], "Estimated Solar Savings")
                     else:
                         st.info("Attach your cost/savings function (e.g., calc_costs_pkrs or compute_solar_savings) to display numbers here.")
                 except Exception as e:
@@ -3089,6 +3490,8 @@ with tab_forecast:
                     elif "compute_solar_savings" in globals():
                         sv = compute_solar_savings(solar_kwh, baseline="LESCO")
                         st.metric("Estimated Solar Savings (PKR)", f"{sv:,.0f}")
+                        # Capture individual metric for PDF
+                        capture_metric_cards([{"label": "Estimated Solar Savings (PKR)", "value": f"{sv:,.0f}", "delta": "", "delta_color": "normal"}], "Estimated Solar Savings")
                     else:
                         st.info("Attach your cost/savings function to display numbers here.")
                 except Exception as e:
@@ -3181,7 +3584,7 @@ with tab_compare:
                         fig_cmp.update_yaxes(title_text=unit, ticksuffix=f" {unit}")
 
                     _apply_common_layout(fig_cmp, title)
-                    render_fig(fig_cmp)
+                    render_fig(fig_cmp, key=f"compare_{title.lower().replace(' ', '_').replace('(', '').replace(')', '')}")
 
                 elif chart_type == "Donut (by month)":
                     valid_rows = df_cmp.dropna(subset=labels, how="all")
@@ -3221,7 +3624,7 @@ with tab_compare:
                                                   outsidetextfont=dict(color="#111827"),
                                                   hovertemplate="%{label}: %{value:,.0f} (" + unit + ") — %{percent}")
                             _apply_common_layout(fig_pie, fig_pie.layout.title.text)
-                            render_fig(fig_pie)
+                            render_fig(fig_pie, key=f"compare_{title.lower().replace(' ', '_').replace('(', '').replace(')', '')}_donut")
 
                 with st.expander("Show comparison data table", expanded=False):
                     st.dataframe(df_cmp)
@@ -3257,11 +3660,12 @@ with tab_report:
 
     section_order = [
         "Overview",
-        "Energy Sources",
+        "Energy Sources", 
         "Solar Savings",
         "Expenses",
         "Production vs Consumption",
         "Gas Consumption",
+        "Comparison",
     ]
 
     st.caption("This page compiles all charts from the tabs below. Downloads export the whole page in one file.")
@@ -3269,7 +3673,54 @@ with tab_report:
     any_content = False
     for sec in section_order:
         figs = SECTION_FIGS.get(sec, [])
+        cards_data = SECTION_CARDS.get(sec, [])
+        
         st.markdown(f"#### {sec}")
+        
+        # Show cards if they exist for this section
+        if cards_data:
+            for card_group in cards_data:
+                if not card_group:
+                    continue
+                
+                # Extract cards and title
+                if isinstance(card_group, dict) and 'cards' in card_group:
+                    cards = card_group['cards']
+                    card_section_title = card_group.get('title', '')
+                else:
+                    cards = card_group
+                    card_section_title = ''
+                
+                if not cards:
+                    continue
+                
+                # Display section title if provided
+                if card_section_title:
+                    st.markdown(f"**{card_section_title}**")
+                
+                # Display cards in columns
+                cols = st.columns(len(cards))
+                for i, card in enumerate(cards):
+                    with cols[i]:
+                        delta_value = card.get('delta', '')
+                        delta_color = card.get('delta_color', 'normal')
+                        
+                        if delta_value:
+                            st.metric(
+                                label=card['label'],
+                                value=card['value'],
+                                delta=delta_value,
+                                delta_color=delta_color
+                            )
+                        else:
+                            st.metric(
+                                label=card['label'],
+                                value=card['value']
+                            )
+                
+                st.write("")  # Add spacing after cards
+        
+        # Show charts
         if not figs:
             st.info(f"No charts captured yet from **{sec}**. Open that tab once to populate its visuals.")
             st.write("")
@@ -3282,7 +3733,7 @@ with tab_report:
                 fig_copy = fig
             if not (getattr(fig_copy, "layout", None) and getattr(fig_copy.layout, "title", None) and getattr(fig_copy.layout.title, "text", None)):
                 fig_copy.update_layout(title=f"{sec} — Figure {i}")
-            render_fig(fig_copy)  # captured into SECTION_FIGS["Report"]
+            render_fig(fig_copy, key=f"report_{sec.lower().replace(' ', '_')}_{i}")  # captured into SECTION_FIGS["Report"]
             any_content = True
 
         st.markdown("---")
