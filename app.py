@@ -73,7 +73,7 @@ if 'chart_cache' not in st.session_state:
 
 # Performance optimization settings
 st.set_page_config(
-    page_title="Powerhouse Dashboard",
+    page_title="PowerPlant Dashboard",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
@@ -3786,6 +3786,7 @@ with tab_report:
 
 # Always show footer at the bottom
 render_footer_ui()
+
 
 
 
