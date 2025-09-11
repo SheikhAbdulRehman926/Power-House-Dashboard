@@ -3753,4 +3753,38 @@ with tab_report:
     section_title("Export Consolidated Report", level=2)
     render_export_row("Report", "Consolidated Report — Overview to Gas", "powerhouse_report_all")
 
+# --- Footer: same gradient UI as header ---
+def render_footer_ui():
+    st.markdown(
+        f"""
+        <style>
+          .app-footer {{
+            position: fixed; left: 0; right: 0; bottom: 0;
+            height: 56px;
+            background: linear-gradient(90deg, {ORANGE_DARK} 0%, {ORANGE_MAIN} 45%, {BLUE_MAIN} 55%, {BLUE_DARK} 100%);
+            color: #fff; z-index: 1000; box-shadow: 0 -4px 16px rgba(0,0,0,.18);
+            display: flex; align-items: center;
+          }}
+          .app-footer .row {{
+            width: 100%; max-width: 1540px; margin: 0 auto; padding: 0 16px;
+            display: flex; align-items: center; justify-content: space-between; gap: 12px;
+            font-weight: 900; letter-spacing: .5px; white-space: nowrap;
+          }}
+          /* Keep space so content isn’t hidden behind the fixed footer */
+          .block-container {{ padding-bottom: 80px; }}
+        </style>
+        <div class="app-footer">
+          <div class="row">
+            <div>Powered by SARKS</div>
+            <div>Powerhouse Dashboard — PETPAK &amp; GPAK, version 1.0</div>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+# call this once near the end of your script
+render_footer_ui()
+
+
 
