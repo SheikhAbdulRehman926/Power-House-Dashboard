@@ -3752,3 +3752,23 @@ with tab_report:
 
     section_title("Export Consolidated Report", level=2)
     render_export_row("Report", "Consolidated Report — Overview to Gas", "powerhouse_report_all")
+
+# Footer
+st.markdown("---")
+footer_html = """
+<div style="
+    background-color: #f0f2f6;
+    padding: 10px 20px;
+    margin-top: 20px;
+    border-top: 1px solid #e0e0e0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 14px;
+    color: #666;
+">
+    <div style="font-weight: 500;">Powered by sarks</div>
+    <div style="font-weight: 500;">Powerhouse Dashboard — PETPAK & GPAK, version 1.0</div>
+</div>
+"""
+st.markdown(footer_html, unsafe_allow_html=True)
