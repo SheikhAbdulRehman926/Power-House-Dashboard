@@ -2500,10 +2500,13 @@ with tab_overview:
                                title=f"Total Generation — {sel_year}")
                 ordered_colors = [color_map_use[s] for s in df_d["Source"]]
                 ins_colors = ["#FFFFFF" if (int(c[1:3],16)*0.2126 + int(c[3:5],16)*0.7152 + int(c[5:7],16)*0.0722)/255 < 0.5 else "#111827" for c in ordered_colors]
-                fig_d.update_traces(textposition="inside", textinfo="label+percent",
-                                    insidetextfont=dict(color=ins_colors),
-                                    outsidetextfont=dict(color="#111827"),
-                                    hovertemplate="%{label}: %{value:,.0f} kWh (%{percent})")
+                fig_d.update_traces(
+                    textposition="inside", 
+                    textinfo="label+percent",
+                    insidetextfont=dict(color=ins_colors),
+                    outsidetextfont=dict(color="#111827"),
+                    hovertemplate="<b>%{label}</b><br>Generation: %{value:,.0f} kWh<br>Share: %{percent}<br>Year: {sel_year}<extra></extra>"
+                )
             else:
                 fig_d = px.bar(df_d, x="Source", y="kWh", color="Source",
                                color_discrete_map=color_map_use, title=f"Total Generation — {sel_year}")
@@ -2557,7 +2560,7 @@ with tab_overview:
             render_fig(fig_mix, key="overview_energy_mix")
 
     st.divider()
-    render_export_row("Overview", "Overview — Powerhouse Dashboard", "overview_powerhouse")
+    # Download options moved to Report tab for better performance
 
 # ───────────────────────────────────────────────────────────────────────────────
 # ENERGY SOURCES
@@ -2685,7 +2688,7 @@ with tab_sources:
             render_fig(fig, key="sources_lesco")
 
     st.divider()
-    render_export_row("Energy Sources", "Energy Sources — Powerhouse Dashboard", "energy_sources_powerhouse")
+    # Download options moved to Report tab for better performance
 
 # ───────────────────────────────────────────────────────────────────────────────
 # SOLAR SAVINGS  (LESCO excluded — GAS only)  +  SOLAR PRODUCTION (green)
@@ -2847,8 +2850,7 @@ with tab_savings:
                 st.dataframe(sv2)
 
     st.divider()
-    # Keep your file key; just update the title text to reflect blended method
-    render_export_row("Solar Savings", "Solar Savings (Blended LESCO + GAS) — Powerhouse Dashboard", "solar_savings_gas_only")
+    # Download options moved to Report tab for better performance
 
 # ───────────────────────────────────────────────────────────────────────────────
 # EXPENSES
@@ -2912,7 +2914,7 @@ with tab_expense:
             render_fig(fig_c, key="expenses_avg_cost")
 
     st.divider()
-    render_export_row("Expenses", "Expenses — Powerhouse Dashboard", "expenses_powerhouse")
+    # Download options moved to Report tab for better performance
 
 # ───────────────────────────────────────────────────────────────────────────────
 # PRODUCTION VS CONSUMPTION
@@ -3017,7 +3019,7 @@ with tab_prodcons:
     render_prod_cons(blocks.get("GPAK PVC"), "GPAK", brand="GPAK")
 
     st.divider()
-    render_export_row("Production vs Consumption", "Production vs Consumption — Powerhouse Dashboard", "production_vs_consumption_powerhouse")
+    # Download options moved to Report tab for better performance
 
 # ───────────────────────────────────────────────────────────────────────────────
 # GAS CONSUMPTION  (renders ONLY inside this tab)
@@ -3185,7 +3187,7 @@ with tab_gas:
                 st.info("No gas consumption data available for table.")
 
     st.divider()
-    render_export_row("Gas Consumption", "Gas Consumption — Powerhouse Dashboard", "gas_consumption_powerhouse")
+    # Download options moved to Report tab for better performance
 
 # ───────────────────────────────────────────────────────────────────────────────
 # FORECASTING (NEW) — Gaussian Naive Bayes-based bucket forecast
@@ -3298,7 +3300,11 @@ with tab_forecast:
             else:  # Donut
                 fig = px.pie(df_fx, names="Source", values="kWh", hole=.5,
                              title=title, color="Source", color_discrete_map=cmap)
-                fig.update_traces(textposition="inside", textinfo="percent+label+value")
+                fig.update_traces(
+                    textposition="inside", 
+                    textinfo="percent+label+value",
+                    hovertemplate="<b>%{label}</b><br>Generation: %{value:,.0f} kWh<br>Share: %{percent}<br>Forecast Period<extra></extra>"
+                )
             _apply_common_layout(fig, title)
             render_fig(fig)
 
@@ -3498,7 +3504,7 @@ with tab_forecast:
                     st.info(f"Costs/Savings not computed: {e}")
 
     st.divider()
-    render_export_row("Forecasting", "Forecasting — Next Month", "forecast_next_month")
+    # Download options moved to Report tab for better performance
 
 # ───────────────────────────────────────────────────────────────────────────────
 # COMPARISON
@@ -3619,10 +3625,13 @@ with tab_compare:
                                     ins_colors.append("#111827" if lum > 0.6 else "#FFFFFF")
                                 except Exception:
                                     ins_colors.append("#111827")
-                            fig_pie.update_traces(textposition="inside", textinfo="label+percent",
-                                                  insidetextfont=dict(color=ins_colors),
-                                                  outsidetextfont=dict(color="#111827"),
-                                                  hovertemplate="%{label}: %{value:,.0f} (" + unit + ") — %{percent}")
+                            fig_pie.update_traces(
+                                textposition="inside", 
+                                textinfo="label+percent",
+                                insidetextfont=dict(color=ins_colors),
+                                outsidetextfont=dict(color="#111827"),
+                                hovertemplate=f"<b>%{{label}}</b><br>Generation: %{{value:,.0f}} {unit}<br>Share: %{{percent}}<br>Month: {chosen_month.strftime('%b %Y')}<extra></extra>"
+                            )
                             _apply_common_layout(fig_pie, fig_pie.layout.title.text)
                             render_fig(fig_pie, key=f"compare_{title.lower().replace(' ', '_').replace('(', '').replace(')', '')}_donut")
 
@@ -3630,7 +3639,7 @@ with tab_compare:
                     st.dataframe(df_cmp)
 
     st.divider()
-    render_export_row("Comparison", "Comparison — Powerhouse Dashboard", "comparison_powerhouse")
+    # Download options moved to Report tab for better performance
 
 # ───────────────────────────────────────────────────────────────────────────────
 # RAW DATA TAB
@@ -3646,7 +3655,7 @@ with tab_data:
     )
 
     st.divider()
-    render_export_row("Data", "Raw Data — Powerhouse Dashboard", "raw_data_powerhouse")
+    # Download options moved to Report tab for better performance
 
 # ───────────────────────────────────────────────────────────────────────────────
 # REPORT — one-page consolidated deck of figures from Overview → Gas Consumption
