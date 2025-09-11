@@ -160,72 +160,24 @@ CFG_PLOTLY = {
 # SECTION CAPTURE (for PDF, DOCX, PPT)
 # ───────────────────────────────────────────────────────────────────────────────
 SECTION_FIGS: Dict[str, List[go.Figure]] = defaultdict(list)
-SECTION_METRICS: Dict[str, List[Dict]] = defaultdict(list)
-SECTION_STATE: Dict[str, Dict] = defaultdict(dict)  # Capture current dashboard state
 CURRENT_SECTION: List[str] = [""]  # tiny stack to allow nested usage if ever needed
 
 def begin_section(name: str):
     """Set the current section; figures rendered after this will be captured."""
     CURRENT_SECTION[0] = name
     SECTION_FIGS[name] = []  # reset capture list on every render of a tab (fresh run)
-    SECTION_METRICS[name] = []  # reset metrics list on every render of a tab (fresh run)
-    SECTION_STATE[name] = {}  # reset state capture on every render of a tab (fresh run)
 
 def capture_fig(fig: go.Figure):
     name = CURRENT_SECTION[0] or "Page"
     SECTION_FIGS[name].append(fig)
 
-def capture_metrics(metrics_data: List[Dict]):
-    """Capture metric cards data for PDF export"""
-    name = CURRENT_SECTION[0] or "Page"
-    SECTION_METRICS[name].extend(metrics_data)
-
-def capture_card_data(label: str, value: str, delta: str = "", delta_color: str = "normal"):
-    """Capture individual card data for export"""
-    name = CURRENT_SECTION[0] or "Page"
-    card_data = {
-        "label": label,
-        "value": value,
-        "delta": delta,
-        "delta_color": delta_color
-    }
-    SECTION_METRICS[name].append(card_data)
-
-def capture_dashboard_state(state_data: Dict):
-    """Capture current dashboard state (selections, colors, visibility)"""
-    name = CURRENT_SECTION[0] or "Page"
-    SECTION_STATE[name].update(state_data)
-
-def get_current_state() -> Dict:
-    """Get current dashboard state for the active section"""
-    name = CURRENT_SECTION[0] or "Page"
-    return SECTION_STATE.get(name, {})
-
-def _regenerate_overview_charts(state: Dict) -> List[go.Figure]:
-    """Regenerate Overview charts based on captured dashboard state"""
-    figs = []
-    
-    # This would regenerate charts with the same selections as the dashboard
-    # For now, we'll use the existing captured figures
-    # In a full implementation, you'd recreate the charts with state['selected_year'], 
-    # state['selected_sources'], state['chart_type'], etc.
-    
-    return SECTION_FIGS.get("Overview", [])
-
-def render_fig(fig: go.Figure, key: str = None):
+def render_fig(fig: go.Figure):
     """Consistent chart rendering + capture for PDF/DOCX/PPT. Optionally remove selectors."""
     if EXPORT_CLEAN and fig.layout.updatemenus:
         d = fig.to_dict()
         d["layout"]["updatemenus"] = []
         fig = go.Figure(d)
-    
-    # Generate unique key if not provided
-    if key is None:
-        section = CURRENT_SECTION[0] or "Page"
-        chart_count = len(SECTION_FIGS.get(section, []))
-        key = f"chart_{section}_{chart_count}"
-    
-    st.plotly_chart(fig, use_container_width=True, config=CFG_PLOTLY, key=key)
+    st.plotly_chart(fig, use_container_width=True, config=CFG_PLOTLY)
     capture_fig(fig)
 
 # ───────────────────────────────────────────────────────────────────────────────
@@ -797,178 +749,30 @@ def _outro_note() -> str:
     return ("\nIf you require deeper drill-downs (e.g., per asset, per shift, or rate sensitivity), kindly advise.\n\n"
             "Regards,\nTechnical Analytics Team")
 
-def _generate_discussion(section_name: str, metrics: List[Dict], figs: List[go.Figure]) -> str:
-    """Generate professional discussion paragraph based on visible data"""
-    discussion_points = []
-    
-    # Analyze metrics for key insights
-    if metrics:
-        # Look for significant changes
-        significant_changes = []
-        for metric in metrics:
-            delta = metric.get("delta", "")
-            if delta and delta != "":
-                try:
-                    # Extract numeric value from delta
-                    delta_val = float(str(delta).replace(",", "").replace("+", "").replace("%", ""))
-                    if abs(delta_val) > 5:  # Significant change threshold
-                        significant_changes.append({
-                            "label": metric.get("label", ""),
-                            "value": metric.get("value", ""),
-                            "delta": delta,
-                            "magnitude": abs(delta_val)
-                        })
-                except (ValueError, TypeError):
-                    continue
-        
-        if significant_changes:
-            # Sort by magnitude of change
-            significant_changes.sort(key=lambda x: x["magnitude"], reverse=True)
-            top_change = significant_changes[0]
-            discussion_points.append(f"The most notable change is in {top_change['label']} with a {top_change['delta']} variation from the previous period.")
-        
-        # Look for totals and averages
-        totals = [m for m in metrics if "total" in m.get("label", "").lower()]
-        if totals:
-            discussion_points.append(f"Total metrics show {len(totals)} key performance indicators with current values ranging across different scales.")
-    
-    # Analyze charts for patterns
-    if figs:
-        chart_count = len(figs)
-        discussion_points.append(f"The analysis includes {chart_count} visualization{'s' if chart_count != 1 else ''} showing trends and patterns in the data.")
-        
-        # Look for specific chart types
-        chart_types = []
-        for fig in figs:
-            if hasattr(fig, 'data') and fig.data:
-                for trace in fig.data:
-                    if hasattr(trace, 'type'):
-                        chart_types.append(trace.type)
-        
-        if 'bar' in chart_types:
-            discussion_points.append("Bar charts highlight comparative performance across different categories.")
-        if 'line' in chart_types:
-            discussion_points.append("Line charts reveal temporal trends and seasonal patterns.")
-        if 'scatter' in chart_types:
-            discussion_points.append("Scatter plots show correlations between different variables.")
-    
-    # Generate section-specific insights
-    section_lower = section_name.lower()
-    if "overview" in section_lower:
-        discussion_points.append("The overview provides a comprehensive snapshot of key performance metrics and their recent trends.")
-    elif "energy" in section_lower or "sources" in section_lower:
-        discussion_points.append("Energy source analysis reveals the distribution and efficiency of different power generation methods.")
-    elif "savings" in section_lower:
-        discussion_points.append("Savings calculations demonstrate the economic benefits of renewable energy integration.")
-    elif "expense" in section_lower:
-        discussion_points.append("Expense analysis highlights cost structures and identifies opportunities for optimization.")
-    elif "production" in section_lower or "consumption" in section_lower:
-        discussion_points.append("Production versus consumption metrics show operational efficiency and capacity utilization.")
-    elif "gas" in section_lower:
-        discussion_points.append("Gas consumption patterns indicate usage efficiency and potential optimization areas.")
-    elif "forecast" in section_lower:
-        discussion_points.append("Forecasting models provide predictive insights for future planning and resource allocation.")
-    elif "comparison" in section_lower:
-        discussion_points.append("Comparative analysis reveals performance benchmarks and areas for improvement.")
-    
-    # Combine into professional paragraph
-    if discussion_points:
-        discussion_text = " ".join(discussion_points)
-        # Ensure professional tone
-        discussion_text = discussion_text.replace("  ", " ").strip()
-        if not discussion_text.endswith("."):
-            discussion_text += "."
-        return discussion_text
-    else:
-        return "The data presented provides valuable insights into operational performance and efficiency metrics. Further analysis may be required to identify specific optimization opportunities."
 
-
-@st.cache_data(ttl=300)  # Cache for 5 minutes
 def build_section_docx(section_name: str, title_text: str) -> bytes:
     if not _DOCX_OK:
         raise RuntimeError("python-docx not installed. Please run: pip install python-docx")
 
     figs = SECTION_FIGS.get(section_name, [])
-    metrics = SECTION_METRICS.get(section_name, [])
-    state = SECTION_STATE.get(section_name, {})  # Get captured dashboard state
     doc = Document()
 
-    # Title page
     title = doc.add_paragraph()
-    run = title.add_run("Powerhouse Dashboard Report")
-    run.bold = True
-    run.font.size = Pt(20)
-    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    
-    # Report metadata
-    doc.add_paragraph()
-    meta = doc.add_paragraph()
-    meta.add_run(f"Report Date: {pd.Timestamp.now().strftime('%B %d, %Y at %I:%M %p')}")
-    meta.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    meta.paragraph_format.space_after = Pt(12)
-    
-    # Dashboard state information
-    if state:
-        state_para = doc.add_paragraph()
-        state_text = "Dashboard State: "
-        if state.get("selected_year"):
-            state_text += f"Year {state['selected_year']}"
-        if state.get("selected_month"):
-            state_text += f" | Month: {state['selected_month']}"
-        if state.get("selected_sources"):
-            state_text += f" | Sources: {', '.join(state['selected_sources'])}"
-        if state.get("chart_type"):
-            state_text += f" | Chart Type: {state['chart_type']}"
-        state_para.add_run(state_text)
-        state_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        state_para.paragraph_format.space_after = Pt(12)
-    
-    # Section title
-    section_title = doc.add_paragraph()
-    run = section_title.add_run(title_text)
+    run = title.add_run(title_text)
     run.bold = True
     run.font.size = Pt(16)
-    section_title.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    section_title.paragraph_format.space_after = Pt(12)
+    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
-    # Add KPIs section if metrics exist
-    if metrics:
-        kpi_heading = doc.add_paragraph()
-        kpi_run = kpi_heading.add_run("Key Performance Indicators")
-        kpi_run.bold = True
-        kpi_run.font.size = Pt(14)
-        kpi_heading.paragraph_format.space_after = Pt(8)
-        
-        # Add metrics as cards
-        for metric in metrics:
-            metric_p = doc.add_paragraph()
-            label = metric.get("label", "")
-            value = metric.get("value", "")
-            delta = metric.get("delta", "")
-            
-            metric_text = f"{label}: {value}"
-            if delta:
-                delta_symbol = "▲" if not str(delta).startswith("-") else "▼"
-                metric_text += f" ({delta_symbol} {delta} vs previous period)"
-            
-            metric_run = metric_p.add_run(metric_text)
-            metric_run.font.size = Pt(11)
-            metric_p.paragraph_format.left_indent = Pt(20)
-        
-        doc.add_paragraph()  # Spacing
+    p = doc.add_paragraph(_intro_for_section(title_text))
+    p.paragraph_format.space_after = Pt(8)
 
-    # Add charts
     for idx, fig in enumerate(figs, start=1):
         ftitle = (fig.layout.title.text if getattr(fig, "layout", None) and getattr(fig.layout, "title", None) else None) or f"Figure {idx}"
-        
-        # Chart heading
         h = doc.add_paragraph()
-        r = h.add_run(f"Figure {idx}: {ftitle}")
+        r = h.add_run(f"{idx}. {ftitle}")
         r.bold = True
         r.font.size = Pt(12)
-        h.paragraph_format.space_after = Pt(6)
 
-        # Chart description
         traces = list(fig.data) if getattr(fig, "data", None) else []
         if not traces:
             doc.add_paragraph("• No chart data available for this figure.")
@@ -977,19 +781,6 @@ def build_section_docx(section_name: str, title_text: str) -> bytes:
             desc = _describe_trace(tr)
             doc.add_paragraph(f"• {desc}")
         doc.add_paragraph("• Where stacked bars are shown, combined monthly totals are labeled on top for quick comparison.")
-        doc.add_paragraph()  # Spacing
-
-    # Add auto-generated discussion
-    discussion = doc.add_paragraph()
-    discussion_run = discussion.add_run("Discussion")
-    discussion_run.bold = True
-    discussion_run.font.size = Pt(14)
-    discussion.paragraph_format.space_after = Pt(8)
-    
-    # Generate discussion based on metrics and data
-    discussion_text = _generate_discussion(section_name, metrics, figs)
-    discussion_p = doc.add_paragraph(discussion_text)
-    discussion_p.paragraph_format.space_after = Pt(12)
 
     doc.add_paragraph(_outro_note())
 
@@ -1092,27 +883,6 @@ def _ppt_add_title_slide(prs: Presentation, title_text: str, slide_idx: int, tot
     sp.text = "Powerhouse Dashboard — PETPAK & GPAK"
     sp.font.size = PPTPt(20); sp.font.color.rgb = RGBColor(71,85,105)  # slate-600
     sp.alignment = PP_ALIGN.CENTER
-    
-    # Add dashboard state information if available
-    state = SECTION_STATE.get("Overview", {})  # Get state from Overview section
-    if state:
-        state_tb = slide.shapes.add_textbox(
-            Inches(2.0), Inches(PPT_SLIDE_H_IN/2 + 1.5),
-            Inches(PPT_SLIDE_W_IN - 4.0), Inches(0.6)
-        )
-        state_tf = state_tb.text_frame; state_tf.clear()
-        state_p = state_tf.paragraphs[0]
-        state_text = "Dashboard State: "
-        if state.get("selected_year"):
-            state_text += f"Year {state['selected_year']}"
-        if state.get("selected_month"):
-            state_text += f" | Month: {state['selected_month']}"
-        if state.get("selected_sources"):
-            state_text += f" | Sources: {', '.join(state['selected_sources'])}"
-        state_p.text = state_text
-        state_p.font.size = PPTPt(14); state_p.font.color.rgb = RGBColor(100,116,139)  # slate-500
-        state_p.alignment = PP_ALIGN.CENTER
-    
     _ppt_add_slide_number(slide, slide_idx, total)
 
 def _ppt_add_graph_slide(prs: Presentation, fig, caption: str, slide_idx: int, total: int):
@@ -1191,125 +961,30 @@ def _ppt_add_conclusion(prs: Presentation, points: list, slide_idx: int, total: 
         p.font.size = PPTPt(18); p.font.color.rgb = RGBColor(30,41,59)
     _ppt_add_slide_number(slide, slide_idx, total)
 
-def _ppt_add_cards_slide(prs: Presentation, title_text: str, metrics: List[Dict], slide_idx: int, total: int):
-    """Add a slide with metric cards in a grid layout"""
-    slide = prs.slides.add_slide(prs.slide_layouts[6])  # blank
-    _ppt_add_brand_header(slide, title_text)
-    _ppt_add_logos(slide)
-    
-    # Add "KPIs" subtitle
-    subtitle_tb = slide.shapes.add_textbox(
-        Inches(PPT_MARGIN_X_IN), Inches(PPT_HEADER_H_IN + 0.2),
-        Inches(PPT_SLIDE_W_IN - 2*PPT_MARGIN_X_IN), Inches(0.4)
-    )
-    subtitle_tf = subtitle_tb.text_frame
-    subtitle_tf.clear()
-    subtitle_p = subtitle_tf.paragraphs[0]
-    subtitle_p.text = "Key Performance Indicators"
-    subtitle_p.font.size = PPTPt(20)
-    subtitle_p.font.bold = True
-    subtitle_p.font.color.rgb = RGBColor(71, 85, 105)  # slate-600
-    subtitle_p.alignment = PP_ALIGN.CENTER
-    
-    # Calculate card layout (4 cards per row)
-    cards_per_row = 4
-    card_width = (PPT_SLIDE_W_IN - 2*PPT_MARGIN_X_IN - 30) / cards_per_row
-    card_height = 1.2
-    start_y = PPT_HEADER_H_IN + 0.8
-    
-    for i, metric in enumerate(metrics):
-        row = i // cards_per_row
-        col = i % cards_per_row
-        
-        x = PPT_MARGIN_X_IN + col * (card_width + 10)
-        y = start_y + row * (card_height + 0.3)
-        
-        # Draw card background
-        card_shape = slide.shapes.add_shape(
-            1, Inches(x), Inches(y), Inches(card_width), Inches(card_height)
-        )
-        card_shape.fill.solid()
-        card_shape.fill.fore_color.rgb = RGBColor(248, 250, 252)  # slate-50
-        card_shape.line.color.rgb = RGBColor(226, 232, 240)  # slate-200
-        
-        # Add label
-        label_tb = slide.shapes.add_textbox(
-            Inches(x + 0.1), Inches(y + 0.1),
-            Inches(card_width - 0.2), Inches(0.3)
-        )
-        label_tf = label_tb.text_frame
-        label_tf.clear()
-        label_p = label_tf.paragraphs[0]
-        label_p.text = metric.get("label", "")
-        label_p.font.size = PPTPt(10)
-        label_p.font.color.rgb = RGBColor(100, 116, 139)  # slate-500
-        
-        # Add value
-        value_tb = slide.shapes.add_textbox(
-            Inches(x + 0.1), Inches(y + 0.4),
-            Inches(card_width - 0.2), Inches(0.4)
-        )
-        value_tf = value_tb.text_frame
-        value_tf.clear()
-        value_p = value_tf.paragraphs[0]
-        value_p.text = metric.get("value", "")
-        value_p.font.size = PPTPt(16)
-        value_p.font.bold = True
-        value_p.font.color.rgb = RGBColor(30, 41, 59)  # slate-800
-        
-        # Add delta if present
-        if metric.get("delta"):
-            delta_tb = slide.shapes.add_textbox(
-                Inches(x + 0.1), Inches(y + 0.8),
-                Inches(card_width - 0.2), Inches(0.3)
-            )
-            delta_tf = delta_tb.text_frame
-            delta_tf.clear()
-            delta_p = delta_tf.paragraphs[0]
-            delta_p.text = metric.get("delta", "")
-            delta_p.font.size = PPTPt(9)
-            
-            # Set delta color
-            delta_color = metric.get("delta_color", "normal")
-            if delta_color == "inverse":
-                delta_color_rgb = RGBColor(220, 38, 38) if str(metric.get("delta", "")).startswith("-") else RGBColor(34, 197, 94)
-            else:
-                delta_color_rgb = RGBColor(34, 197, 94) if str(metric.get("delta", "")).startswith("-") else RGBColor(220, 38, 38)
-            delta_p.font.color.rgb = delta_color_rgb
-    
-    _ppt_add_slide_number(slide, slide_idx, total)
-
-@st.cache_data(ttl=300)  # Cache for 5 minutes
 def build_section_ppt_brand(section_name: str, title_text: str) -> bytes:
     if not _PPTX_OK:
         raise RuntimeError("python-pptx not installed. Please run: pip install python-pptx")
 
     figs = SECTION_FIGS.get(section_name, [])
-    metrics = SECTION_METRICS.get(section_name, [])
-    state = SECTION_STATE.get(section_name, {})  # Get captured dashboard state
-    
-    # total slides: 1 title + 1 cards (if metrics exist) + 1 per fig + 1 conclusion
-    total = 1 + (1 if metrics else 0) + len(figs) + 1
+    # total slides: 1 title + 2 per fig + 1 conclusion
+    total = 1 + 2*len(figs) + 1
     idx = 1
 
     prs = _ppt_init()
     _ppt_add_title_slide(prs, title_text, idx, total); idx += 1
-    
-    # Add cards slide if metrics exist
-    if metrics:
-        _ppt_add_cards_slide(prs, title_text, metrics, idx, total); idx += 1
 
     for fig in figs:
         caption = (fig.layout.title.text
                    if getattr(fig, "layout", None) and getattr(fig.layout, "title", None)
                    else title_text)
         _ppt_add_graph_slide(prs, fig, caption, idx, total); idx += 1
+        _ppt_add_explain_slide(prs, caption, _figure_summary_points(fig), idx, total); idx += 1
 
     _ppt_add_conclusion(prs, [
         "Sustain reliability by addressing sources with highest month-to-month variance.",
         "Prioritize solar utilization in months with favorable yield and tariff differentials.",
         "Investigate outliers in PKR/kWh and kWh/kg to identify maintenance or efficiency actions.",
-        "Share this deck with operations; align next month's targets to the median of the last 6 months."
+        "Share this deck with operations; align next month’s targets to the median of the last 6 months."
     ], idx, total)
 
     buf = io.BytesIO(); prs.save(buf)
@@ -1768,114 +1443,19 @@ def render_export_row(section_key: str, title_text: str, fname_slug: str):
     st.markdown('<div class="export-row"></div>', unsafe_allow_html=True)
 
 # ───────────────────────────────────────────────────────────────────────────────
-# CHART REGENERATION FOR PDF EXPORT
-# ───────────────────────────────────────────────────────────────────────────────
-def _regenerate_overview_charts(state: Dict) -> List[go.Figure]:
-    """Regenerate overview charts based on captured state"""
-    figs = []
-    
-    # Regenerate Total Generation chart
-    if "selected_year" in state and "selected_sources" in state and "chart_type" in state:
-        sel_year = state["selected_year"]
-        sel_sources = state["selected_sources"]
-        chart_type = state["chart_type"]
-        color_map = state.get("color_map", {})
-        
-        # Recreate the data (this would need access to the original data)
-        # For now, we'll use the captured figures but modify them
-        original_figs = SECTION_FIGS.get("Overview", [])
-        if original_figs:
-            # Take the first figure (Total Generation chart)
-            fig = original_figs[0]
-            
-            # Update the chart type if it's different
-            if chart_type == "Bar" and fig.data[0].type == "pie":
-                # Convert pie to bar chart
-                fig = _convert_pie_to_bar(fig, color_map)
-            elif chart_type == "Donut" and fig.data[0].type == "bar":
-                # Convert bar to pie chart
-                fig = _convert_bar_to_pie(fig, color_map)
-            
-            figs.append(fig)
-            
-            # Add other charts if they exist
-            if len(original_figs) > 1:
-                figs.extend(original_figs[1:])
-    
-    return figs if figs else SECTION_FIGS.get("Overview", [])
-
-def _convert_pie_to_bar(fig: go.Figure, color_map: Dict) -> go.Figure:
-    """Convert pie chart to bar chart"""
-    pie_data = fig.data[0]
-    sources = pie_data.labels
-    values = pie_data.values
-    
-    # Create bar chart
-    bar_fig = px.bar(
-        x=sources, 
-        y=values, 
-        color=sources,
-        color_discrete_map=color_map,
-        title=fig.layout.title.text
-    )
-    
-    # Copy styling from original
-    bar_fig.update_layout(
-        font=fig.layout.font,
-        plot_bgcolor=fig.layout.plot_bgcolor,
-        paper_bgcolor=fig.layout.paper_bgcolor
-    )
-    
-    return bar_fig
-
-def _convert_bar_to_pie(fig: go.Figure, color_map: Dict) -> go.Figure:
-    """Convert bar chart to pie chart"""
-    bar_data = fig.data[0]
-    sources = bar_data.x
-    values = bar_data.y
-    
-    # Create pie chart
-    pie_fig = px.pie(
-        names=sources,
-        values=values,
-        color=sources,
-        color_discrete_map=color_map,
-        title=fig.layout.title.text,
-        hole=0.55
-    )
-    
-    # Copy styling from original
-    pie_fig.update_layout(
-        font=fig.layout.font,
-        plot_bgcolor=fig.layout.plot_bgcolor,
-        paper_bgcolor=fig.layout.paper_bgcolor
-    )
-    
-    return pie_fig
-
-# ───────────────────────────────────────────────────────────────────────────────
 # PDF BUILDER (unchanged)
 # ───────────────────────────────────────────────────────────────────────────────
-@st.cache_data(ttl=300)  # Cache for 5 minutes
 def build_section_pdf(section_name: str, title_text: str,
                       petpak_logo_data_uri: Optional[str],
                       gpak_logo_data_uri: Optional[str]) -> bytes:
     figs = SECTION_FIGS.get(section_name, [])
-    metrics = SECTION_METRICS.get(section_name, [])
-    state = SECTION_STATE.get(section_name, {})  # Get captured dashboard state
     buf = io.BytesIO()
-    
-    # Regenerate charts based on current state for Overview tab
-    if section_name == "Overview" and state:
-        figs = _regenerate_overview_charts(state)
-    
-    # Use landscape A4 for better chart visibility
     page_w, page_h = landscape(A4)
     c = canvas.Canvas(buf, pagesize=(page_w, page_h))
 
-    # Margins & header area - optimized for charts
-    M_L, M_R, M_T, M_B = 35, 35, 35, 35
-    header_h = 60  # Slightly bigger header for logos
+    # Margins & header area
+    M_L, M_R, M_T, M_B = 28, 28, 28, 28
+    header_h = 70
     usable_w = page_w - M_L - M_R
     usable_h = page_h - M_T - M_B - header_h
 
@@ -1899,288 +1479,76 @@ def build_section_pdf(section_name: str, title_text: str,
     petpak_bytes = data_uri_to_bytes(petpak_logo_data_uri)
     gpak_bytes   = data_uri_to_bytes(gpak_logo_data_uri)
 
-    def draw_header(canvas, title):
-        """Draw header with logos and title"""
-        canvas.setFillColorRGB(1, 1, 1)
-        canvas.rect(0, page_h - header_h, page_w, header_h, fill=1, stroke=0)
+    c.setFillColorRGB(1, 1, 1)
+    c.rect(0, page_h - header_h, page_w, header_h, fill=1, stroke=0)
 
-        logo_max_h = 50  # Bigger logos
-        logo_max_w = 120  # Bigger logos
-        y_logo = page_h - 15 - logo_max_h
-        
-        # Add state information if available
-        if state:
-            canvas.setFont("Helvetica", 8)
-            canvas.setFillColorRGB(0.5, 0.5, 0.5)
-            state_text = "Current Dashboard State: "
-            if "selected_year" in state:
-                state_text += f"Year {state['selected_year']}"
-            if "selected_month" in state:
-                state_text += f" | Month: {state['selected_month']}"
-            if "selected_sources" in state:
-                state_text += f" | Sources: {', '.join(state['selected_sources'])}"
-            if "chart_type" in state:
-                state_text += f" | Chart: {state['chart_type']}"
-            canvas.drawString(M_L, page_h - header_h + 5, state_text)
-        
-        if gpak_bytes:
-            img = ImageReader(io.BytesIO(gpak_bytes))
-            iw, ih = img.getSize()
-            scale = min(logo_max_w / iw, logo_max_h / ih)
-            canvas.drawImage(img, M_L, y_logo, iw * scale, ih * scale, mask='auto')
-        
-        if petpak_bytes:
-            img = ImageReader(io.BytesIO(petpak_bytes))
-            iw, ih = img.getSize()
-            scale = min(logo_max_w / iw, logo_max_h / ih)
-            canvas.drawImage(img, page_w - M_R - iw * scale, y_logo, iw * scale, ih * scale, mask='auto')
+    logo_max_h = 40
+    logo_max_w = 120
+    y_logo = page_h - 10 - logo_max_h
+    if gpak_bytes:
+        img = ImageReader(io.BytesIO(gpak_bytes))
+        iw, ih = img.getSize()
+        scale = min(logo_max_w / iw, logo_max_h / ih)
+        c.drawImage(img, M_L, y_logo, iw * scale, ih * scale, mask='auto')
+    if petpak_bytes:
+        img = ImageReader(io.BytesIO(petpak_bytes))
+        iw, ih = img.getSize()
+        scale = min(logo_max_w / iw, logo_max_h / ih)
+        c.drawImage(img, page_w - M_R - iw * scale, y_logo, iw * scale, ih * scale, mask='auto')
 
-        canvas.setFont("Helvetica-Bold", 14)
-        canvas.setFillColorRGB(0.09, 0.09, 0.12)
-        canvas.drawCentredString(page_w / 2, page_h - 35, title)
+    c.setFont("Helvetica-Bold", 18)
+    c.setFillColorRGB(0.09, 0.09, 0.12)
+    c.drawCentredString(page_w / 2, page_h - 46, title_text)
 
-    def draw_section_header(canvas, x, y, width, title):
-        """Draw section header exactly like dashboard UI"""
-        # Header background (dark gray rounded rectangle) - matching dashboard
-        canvas.setFillColorRGB(0.2, 0.2, 0.2)  # Dark gray matching dashboard
-        canvas.roundRect(x, y - 30, width, 30, 8, fill=1, stroke=0)
-        
-        # Orange-red dot (matching dashboard gradient colors)
-        canvas.setFillColorRGB(0.78, 0.29, 0.10)  # ORANGE_DARK #C84B1A
-        canvas.circle(x + 10, y - 15, 4, fill=1, stroke=0)
-        
-        # Title text (matching dashboard)
-        canvas.setFont("Helvetica-Bold", 13)
-        canvas.setFillColorRGB(1, 1, 1)  # White text
-        canvas.drawString(x + 22, y - 20, title)
+    if not figs:
+        c.showPage()
+        c.save()
+        return buf.getvalue()
 
-    def draw_metric_card(canvas, x, y, width, height, label, value, delta="", delta_color="normal"):
-        """Draw metric card exactly like dashboard UI"""
-        # Card background (white with rounded corners) - matching dashboard
-        canvas.setFillColorRGB(1, 1, 1)  # White background
-        canvas.setStrokeColorRGB(0.92, 0.92, 0.92)  # Light border matching dashboard
-        canvas.roundRect(x, y - height, width, height, 12, fill=1, stroke=1)
-        
-        # Left gradient bar (orange to blue) - exact dashboard colors
-        bar_width = 6
-        # Create smooth gradient using exact dashboard colors
-        for i in range(bar_width):
-            # Interpolate from ORANGE_MAIN to BLUE_MAIN
-            orange_weight = (bar_width - i) / bar_width
-            blue_weight = i / bar_width
-            
-            # ORANGE_MAIN #FF6A2C = (1.0, 0.42, 0.17)
-            # BLUE_MAIN #1E3A8A = (0.12, 0.23, 0.54)
-            r = 1.0 * orange_weight + 0.12 * blue_weight
-            g = 0.42 * orange_weight + 0.23 * blue_weight  
-            b = 0.17 * orange_weight + 0.54 * blue_weight
-            
-            canvas.setStrokeColorRGB(r, g, b)
-            canvas.line(x + i + 3, y - height + 6, x + i + 3, y - 6)
-        
-        # Label (smaller, dark gray text) - matching dashboard TEXT_MUTED
-        canvas.setFont("Helvetica", 10)
-        canvas.setFillColorRGB(0.12, 0.16, 0.22)  # TEXT_MUTED #1f2937
-        
-        # Clean up label - replace currency symbols with proper units
-        clean_label = (label
-                      .replace("(■)", "(PKR)")
-                      .replace("(₨)", "(PKR)")
-                      .replace("(₨/kWh)", "(PKR/kWh)")
-                      .replace("(₨/KG)", "(PKR/KG)")
-                      .replace("■", "PKR")
-                      .replace("₨", "PKR"))
-        
-        # Wrap long labels
-        words = clean_label.split()
-        lines = []
-        current_line = ""
-        for word in words:
-            if len(current_line + " " + word) <= 32:  # Character limit
-                current_line += (" " + word) if current_line else word
-            else:
-                if current_line:
-                    lines.append(current_line)
-                current_line = word
-        if current_line:
-            lines.append(current_line)
-        
-        # Draw label lines (max 2 lines)
-        for i, line in enumerate(lines[:2]):
-            canvas.drawString(x + 14, y - 18 - i*11, line)
-        
-        # Value (large, bold, dark gray) - matching dashboard TEXT_PRIMARY
-        canvas.setFont("Helvetica-Bold", 18)
-        canvas.setFillColorRGB(0.06, 0.09, 0.16)  # TEXT_PRIMARY #0f172a
-        canvas.drawString(x + 14, y - 42, value)
-        
-        # Delta (smaller, colored with arrow)
-        if delta:
-            canvas.setFont("Helvetica", 9)
-            # Determine arrow and color - matching dashboard colors exactly
-            if str(delta).startswith("-"):
-                arrow = "↓"
-                # Smart color logic based on metric type - using exact dashboard colors
-                if "expense" in label.lower() or "cost" in label.lower():
-                    delta_color_rgb = (0.13, 0.77, 0.37)  # Green #22C55E for good decrease
-                else:
-                    delta_color_rgb = (0.88, 0.11, 0.28)  # Red #E11D48 for bad decrease
-            else:
-                arrow = "↑"
-                if "expense" in label.lower() or "cost" in label.lower():
-                    delta_color_rgb = (0.88, 0.11, 0.28)  # Red #E11D48 for bad increase
-                else:
-                    delta_color_rgb = (0.13, 0.77, 0.37)  # Green #22C55E for good increase
-            
-            canvas.setFillColorRGB(*delta_color_rgb)
-            delta_text = f"{arrow} {delta}"
-            canvas.drawString(x + 14, y - 57, delta_text)
+    images: List[Tuple[int, int, bytes]] = []
+    for fig in figs:
+        _force_month_labels(fig)
+        try:
+            png = pio.to_image(fig, format="png", scale=2, width=1200, height=700)
+        except Exception:
+            png = pio.to_image(fig, format="png")
+        img = ImageReader(io.BytesIO(png))
+        iw, ih = img.getSize()
+        images.append((iw, ih, png))
 
-    # Draw header
-    draw_header(c, title_text)
-    
-    current_y = page_h - header_h - 15
-    
-    # Draw metrics/cards if available
-    if metrics:
-        # Calculate metrics layout (4 cards per row like dashboard)
-        metrics_per_row = 4
-        card_width = (usable_w - 24) / metrics_per_row  # Proper spacing
-        card_height = 70  # Optimal height
-        
-        # Group metrics by section (Yearly vs Monthly)
-        yearly_metrics = [m for m in metrics if "2025" in m.get("label", "") or "Year" in m.get("label", "")]
-        monthly_metrics = [m for m in metrics if m not in yearly_metrics]
-        
-        # Draw Yearly Highlights section
-        if yearly_metrics:
-            draw_section_header(c, M_L, current_y, usable_w, "Yearly Highlights")
-            current_y -= 40
-            
-            # Draw yearly cards
-            for i, metric in enumerate(yearly_metrics):
-                col = i % metrics_per_row
-                x = M_L + col * (card_width + 8)  # Proper spacing
-                y = current_y
-                
-                draw_metric_card(c, x, y, card_width, card_height, 
-                               metric.get("label", ""), 
-                               metric.get("value", ""), 
-                               metric.get("delta", ""), 
-                               metric.get("delta_color", "normal"))
-            
-            current_y -= card_height + 20
-        
-        # Draw Monthly Highlights section
-        if monthly_metrics:
-            draw_section_header(c, M_L, current_y, usable_w, "Monthly Highlights")
-            current_y -= 40
-            
-            # Draw monthly cards
-            for i, metric in enumerate(monthly_metrics):
-                col = i % metrics_per_row
-                x = M_L + col * (card_width + 8)  # Proper spacing
-                y = current_y
-                
-                draw_metric_card(c, x, y, card_width, card_height, 
-                               metric.get("label", ""), 
-                               metric.get("value", ""), 
-                               metric.get("delta", ""), 
-                               metric.get("delta_color", "normal"))
-            
-            current_y -= card_height + 20
-        
-        # If no section grouping, draw all cards together
-        if not yearly_metrics and not monthly_metrics:
-            for i, metric in enumerate(metrics):
-                row = i // metrics_per_row
-                col = i % metrics_per_row
-                
-                x = M_L + col * (card_width + 8)  # Proper spacing
-                y = current_y - row * (card_height + 15)  # Proper row spacing
-                
-                draw_metric_card(c, x, y, card_width, card_height, 
-                               metric.get("label", ""), 
-                               metric.get("value", ""), 
-                               metric.get("delta", ""), 
-                               metric.get("delta_color", "normal"))
-            
-            # Update current_y after metrics
-            metrics_rows = (len(metrics) + metrics_per_row - 1) // metrics_per_row
-            current_y -= metrics_rows * (card_height + 15) + 20
+    n = len(images)
+    if n == 1:
+        cols, rows = 1, 1
+    elif n in (2, 3):
+        cols, rows = 2, 2
+    elif n == 4:
+        cols, rows = 2, 2
+    elif n in (5, 6):
+        cols, rows = 3, 2
+    elif n in (7, 8, 9):
+        cols, rows = 3, 3
+    else:
+        cols, rows = 3, 3
 
-    # Draw charts with optimal sizing
-    if figs:
-        images: List[Tuple[int, int, bytes]] = []
-        for fig in figs:
-            _force_month_labels(fig)
-            try:
-                # Maximum resolution for crystal-clear charts
-                png = pio.to_image(fig, format="png", scale=5, width=2000, height=1200)
-            except Exception:
-                try:
-                    png = pio.to_image(fig, format="png", scale=4, width=1800, height=1000)
-                except Exception:
-                    try:
-                        png = pio.to_image(fig, format="png", scale=3, width=1500, height=900)
-                    except Exception:
-                        png = pio.to_image(fig, format="png", scale=2)
+    cell_w = (usable_w - (cols - 1) * 10) / cols
+    cell_h = (usable_h - (rows - 1) * 10) / rows
+    start_x = M_L
+    start_y = M_B + usable_h
+
+    idx = 0
+    for r in range(rows):
+        y_top = start_y - r * (cell_h + 10)
+        y_img = y_top - cell_h
+        for ccol in range(cols):
+            if idx >= n:
+                break
+            iw, ih, png = images[idx]
             img = ImageReader(io.BytesIO(png))
-            iw, ih = img.getSize()
-            images.append((iw, ih, png))
-
-        n = len(images)
-        if n == 1:
-            # Single chart - use maximum available space for better visibility
-            chart_width = usable_w
-            chart_height = current_y - M_B - 20  # More space for chart
-            start_x = M_L
-            start_y = current_y - 20
-            
-            iw, ih, png = images[0]
-            img = ImageReader(io.BytesIO(png))
-            scale = min(chart_width / iw, chart_height / ih)
+            scale = min(cell_w / iw, cell_h / ih)
             draw_w, draw_h = iw * scale, ih * scale
-            x_img = start_x + (chart_width - draw_w) / 2
-            y_img = start_y - chart_height + (chart_height - draw_h) / 2
-            c.drawImage(img, x_img, y_img, draw_w, draw_h, mask='auto')
-            
-        elif n == 2:
-            # Two charts side by side (like dashboard) - maximum visibility
-            chart_width = (usable_w - 15) / 2  # Less gap for bigger charts
-            chart_height = current_y - M_B - 20  # More space for charts
-            
-            for idx, (iw, ih, png) in enumerate(images):
-                img = ImageReader(io.BytesIO(png))
-                scale = min(chart_width / iw, chart_height / ih)
-                draw_w, draw_h = iw * scale, ih * scale
-                
-                x_img = M_L + idx * (chart_width + 15) + (chart_width - draw_w) / 2
-                y_img = current_y - chart_height + (chart_height - draw_h) / 2
-                c.drawImage(img, x_img, y_img, draw_w, draw_h, mask='auto')
-                
-        else:
-            # Multiple charts in grid
-            cols = 2 if n <= 4 else 3
-            rows = (n + cols - 1) // cols
-            
-            cell_w = (usable_w - (cols - 1) * 15) / cols
-            cell_h = (current_y - M_B - (rows - 1) * 15) / rows
-            
-            idx = 0
-            for r in range(rows):
-                y_top = current_y - r * (cell_h + 15)
-                y_img = y_top - cell_h
-                for ccol in range(cols):
-                    if idx >= n:
-                        break
-                    iw, ih, png = images[idx]
-                    img = ImageReader(io.BytesIO(png))
-                    scale = min(cell_w / iw, cell_h / ih)
-                    draw_w, draw_h = iw * scale, ih * scale
-                    x_img = M_L + ccol * (cell_w + 15) + (cell_w - draw_w) / 2
-                    c.drawImage(img, x_img, y_img + (cell_h - draw_h) / 2, draw_w, draw_h, mask='auto')
-                    idx += 1
+            x_img = start_x + ccol * (cell_w + 10) + (cell_w - draw_w) / 2
+            c.drawImage(img, x_img, y_img + (cell_h - draw_h) / 2, draw_w, draw_h, mask='auto')
+            idx += 1
 
     c.showPage()
     c.save()
@@ -2641,30 +2009,17 @@ with tab_overview:
             def _fmt(v):
                 return value_formatter(v) if v is not None and not (isinstance(v, float) and np.isnan(v)) else "—"
             if prev is None or (isinstance(prev, float) and np.isnan(prev)):
-                col.metric(label=label, value=_fmt(curr), delta="")
-                capture_card_data(label, _fmt(curr), "", "normal")
-                return
+                col.metric(label=label, value=_fmt(curr), delta=""); return
             if curr is None or (isinstance(curr, float) and np.isnan(curr)):
-                col.metric(label=label, value="—", delta="")
-                capture_card_data(label, "—", "", "normal")
-                return
+                col.metric(label=label, value="—", delta=""); return
             delta = curr - prev
             delta_txt = delta_formatter(delta) if delta_formatter else f"{delta:+,.0f}"
-            delta_color = "inverse" if inverse else "normal"
-            col.metric(label=label, value=_fmt(curr), delta=delta_txt, delta_color=delta_color)
-            capture_card_data(label, _fmt(curr), delta_txt, delta_color)
+            col.metric(label=label, value=_fmt(curr), delta=delta_txt, delta_color=("inverse" if inverse else "normal"))
 
         metric_delta_value(c1, f"{sel_year} — Total Generation (kWh)", y_kwh, p_kwh if prev_year else None, f0, fd0, inverse=False)
         metric_delta_value(c2, f"{sel_year} — Total Energy Expense (₨)", y_exp, p_exp if prev_year else None, f0, fd0, inverse=True)
         metric_delta_value(c3, f"{sel_year} — Average Cost (₨/kWh)", y_cost, p_cost if prev_year else None, f2, fd2, inverse=True)
         metric_delta_value(c4, f"{sel_year} — Solar Share (%)", y_share, p_share if prev_year else None, f1p, fd1p, inverse=False)
-        
-        # Capture yearly dashboard state for exports
-        capture_dashboard_state({
-            "selected_year": sel_year,
-            "available_years": years_available,
-            "previous_year": prev_year
-        })
     else:
         st.info("No dated rows found. Please ensure the 'Month' column is populated.")
 
@@ -2706,30 +2061,17 @@ with tab_overview:
             def _fmt(v):
                 return value_formatter(v) if v is not None and not (isinstance(v, float) and np.isnan(v)) else "—"
             if prev is None or (isinstance(prev, float) and np.isnan(prev)):
-                col.metric(label=label, value=_fmt(curr), delta="")
-                capture_card_data(label, _fmt(curr), "", "normal")
-                return
+                col.metric(label=label, value=_fmt(curr), delta=""); return
             if curr is None or (isinstance(curr, float) and np.isnan(curr)):
-                col.metric(label=label, value="—", delta="")
-                capture_card_data(label, "—", "", "normal")
-                return
+                col.metric(label=label, value="—", delta=""); return
             delta = curr - prev
             delta_txt = delta_formatter(delta) if delta_formatter else f"{delta:+,.0f}"
-            delta_color = "inverse" if inverse else "normal"
-            col.metric(label=label, value=_fmt(curr), delta=delta_txt, delta_color=delta_color)
-            capture_card_data(label, _fmt(curr), delta_txt, delta_color)
+            col.metric(label=label, value=_fmt(curr), delta=delta_txt, delta_color=("inverse" if inverse else "normal"))
 
         metric_delta_value(cA, "Total Generation (kWh)", kwh_curr, kwh_prev, f0, fd0, inverse=False)
         metric_delta_value(cB, "Total Energy Expense (₨)", exp_curr_val, exp_prev_val, f0, fd0, inverse=True)
         metric_delta_value(cC, "Average Cost (₨/kWh)", cpk_curr_val, cpk_prev_val, f2, fd2, inverse=True)
         metric_delta_value(cD, "Solar Share (%)", mix_curr, mix_prev, f1p, fd1p, inverse=False)
-        
-        # Capture monthly dashboard state for exports
-        capture_dashboard_state({
-            "selected_month": sel_month.strftime("%b %Y") if sel_month else None,
-            "selected_year": sel_year if 'sel_year' in locals() else None,
-            "available_months": [m.strftime("%b %Y") for m in selector_months]
-        })
 
     # Composition
     if selector_months:
@@ -2761,14 +2103,6 @@ with tab_overview:
 
             comp_opts = ["Donut", "Bar"]
             ctype = st.selectbox("Composition chart type", comp_opts, index=0, key="overview_comp_layout")
-            
-            # Capture current state for export
-            capture_dashboard_state({
-                "selected_year": sel_year,
-                "selected_sources": sel_sources,
-                "chart_type": ctype,
-                "available_sources": list(labels_all)
-            })
 
             default_color_map = {
                 "Rental": RENTAL_GREEN,
@@ -2781,12 +2115,6 @@ with tab_overview:
             base_palette = [default_color_map.get(s, PURPLE) for s in sel_sources]
             palette, custom_map = color_controls(sel_sources, "overview_comp_colors", base_palette)
             color_map_use = {s: (custom_map.get(s) or default_color_map.get(s, PURPLE)) for s in sel_sources}
-            
-            # Capture color selections
-            capture_dashboard_state({
-                "color_map": color_map_use,
-                "custom_colors": custom_map
-            })
 
             if ctype == "Donut":
                 fig_d = px.pie(df_d, names="Source", values="kWh", hole=0.55,
@@ -2803,7 +2131,7 @@ with tab_overview:
                                color_discrete_map=color_map_use, title=f"Total Generation — {sel_year}")
                 _add_bar_value_labels(fig_d)
             _apply_common_layout(fig_d, f"Total Generation — {sel_year}")
-            render_fig(fig_d, key="overview_donut")
+            render_fig(fig_d)
 
     # ENERGY MIX
     if selector_months:
@@ -2827,23 +2155,11 @@ with tab_overview:
             base_pal = [COLOR_MAP_ENERGY.get(n, fallback[i]) for i, n in enumerate(ycols)]
             pal_fixed, color_map_fixed = color_controls(ycols, "mix_colors", base_pal)
             color_map_fixed = {n: color_map_fixed.get(n, base_pal[i]) for i, n in enumerate(ycols)}
-            
-            # Capture Energy Mix state
-            capture_dashboard_state({
-                "energy_mix_sources": ycols,
-                "energy_mix_colors": color_map_fixed,
-                "available_energy_sources": ycols_all
-            })
 
             ctype = st.selectbox("Mix chart type",
                                  ["Stacked Bar", "Bar", "Line", "Area (Mountain)"],
                                  index=0, key="mix_layout_overview")
             title_mix = f"Energy Mix — {sel_year}"
-            
-            # Capture mix chart type
-            capture_dashboard_state({
-                "mix_chart_type": ctype
-            })
             if ctype == "Bar":
                 fig_mix = _bar_like_from_wide(df_plot, "Month", ycols, title_mix,
                                               stacked=False, palette=pal_fixed, color_map=color_map_fixed)
@@ -2860,7 +2176,7 @@ with tab_overview:
 
             fig_mix.update_yaxes(title_text="kWh", ticksuffix=" kWh", showgrid=True, gridcolor="#e5e7eb", nticks=12)
             fig_mix.update_layout(height=520)
-            render_fig(fig_mix, key="overview_mix")
+            render_fig(fig_mix)
 
     st.divider()
     render_export_row("Overview", "Overview — Powerhouse Dashboard", "overview_powerhouse")
@@ -2876,13 +2192,6 @@ with tab_sources:
         if df_eng is None or df_eng.empty:
             return
         df_e = df_eng.copy()
-        
-        # Capture engine state
-        engine_state = {
-            "engine_name": title,
-            "engine_id": key_prefix,
-            "context": context
-        }
 
         # UNITS (KWH) — single series with color control
         if "UNITS (KWH)" in df_e.columns:
@@ -2891,13 +2200,6 @@ with tab_sources:
                 layout = st.selectbox(f"{title}: layout", ["Bar","Line","Area (Mountain)","Lollipop"], index=0, key=f"{key_prefix}_kwh_layout")
                 base_pal = brand_palette(context, 1)
                 pal, _map = color_controls(["kWh"], f"{key_prefix}_kwh_colors", base_pal)
-                
-                # Capture engine layout and colors
-                engine_state.update({
-                    "kwh_layout": layout,
-                    "kwh_colors": _map,
-                    "base_palette": base_pal
-                })
                 if layout == "Bar":
                     fig = _bar_like_from_wide(df_b, "Month", "UNITS (KWH)", f"{title} — kWh", stacked=False, palette=pal)
                 elif layout == "Line":
@@ -2908,7 +2210,7 @@ with tab_sources:
                     fig = _lollipop_from_series(df_b.rename(columns={"UNITS (KWH)":"kWh"}), "Month", "kWh", f"{title} — kWh", palette=pal)
                 fig.update_yaxes(title_text="kWh", ticksuffix=" kWh")
                 _apply_common_layout(fig, f"{title} — kWh")
-                render_fig(fig, key=f"sources_chart_{key_prefix}")
+                render_fig(fig)
 
         # Efficiency (M3/KWH or kWh/MMBtu) — series multiselect + colors
         y2_candidates = [c for c in ["M3/KWH", "kWh/MMBtu"] if c in df_e.columns]
@@ -2922,14 +2224,6 @@ with tab_sources:
                     layout = st.selectbox(f"{title}: efficiency layout", ["Line","Area (Mountain)","Bar","Stacked Bar","Lollipop"], index=0, key=f"{key_prefix}_eff_layout")
                     base_pal = brand_palette(context, len(picked))
                     pal, _map = color_controls(picked, f"{key_prefix}_eff_colors", base_pal)
-                    
-                    # Capture efficiency state
-                    engine_state.update({
-                        "efficiency_metrics": picked,
-                        "efficiency_layout": layout,
-                        "efficiency_colors": _map,
-                        "available_efficiency_metrics": y2_candidates
-                    })
                     if layout == "Line":
                         fig2 = _line_from_wide(df_l, "Month", picked, title=f"{title} — Efficiency", palette=pal)
                     elif layout == "Area (Mountain)":
@@ -2941,10 +2235,7 @@ with tab_sources:
                     else:
                         metric0 = picked[0]
                         fig2 = _lollipop_from_series(df_l.rename(columns={metric0:"Value"}), "Month", "Value", f"{title} — {metric0}", palette=pal[:1])
-                    render_fig(fig2, key=f"sources_efficiency_{key_prefix}")
-        
-        # Capture the complete engine state
-        capture_dashboard_state({f"engine_{key_prefix}": engine_state})
+                    render_fig(fig2)
 
     _engine_block("PETPAK Engine 01", blocks.get("PETPAK ENGINE #01"), "petpak1", context="petpak_engine")
     _engine_block("GPAK Engine 01", blocks.get("GPAK ENGINE #01"), "gpak1", context="gpak_engine_1")
@@ -2967,7 +2258,7 @@ with tab_sources:
                 fig = _lollipop_from_series(df_r.rename(columns={"UNITS (KWH)":"kWh"}), "Month", "kWh", "Rental Engine — kWh", palette=pal)
             fig.update_yaxes(title_text="kWh", ticksuffix=" kWh")
             _apply_common_layout(fig, "Rental Engine — kWh")
-            render_fig(fig, key="sources_rental")
+            render_fig(fig)
 
     # Solar: series multiselect + colors
     solar_block = blocks.get("SOLAR GENERATION")
@@ -2994,7 +2285,7 @@ with tab_sources:
                     _overlay_totals_text(fig, x=df_s2["Month"], totals=totals_here)
                 fig.update_yaxes(title_text="kWh", ticksuffix=" kWh")
                 _apply_common_layout(fig, "Solar Generation (kWh)")
-                render_fig(fig, key="sources_solar")
+                render_fig(fig)
 
     # LESCO — single series color
     lesco_block = blocks.get("LESCO GENERATION")
@@ -3013,7 +2304,7 @@ with tab_sources:
                 fig = _lollipop_from_series(df_l.rename(columns={"UNITS (KWH)":"kWh"}), "Month", "kWh", "LESCO — kWh", palette=pal)
             fig.update_yaxes(title_text="kWh", ticksuffix=" kWh")
             _apply_common_layout(fig, "LESCO — kWh")
-            render_fig(fig, key="sources_lesco")
+            render_fig(fig)
 
     st.divider()
     render_export_row("Energy Sources", "Energy Sources — Powerhouse Dashboard", "energy_sources_powerhouse")
@@ -3046,12 +2337,6 @@ with tab_savings:
                 format_func=lambda d: d.strftime("%b %Y"),
                 key="sv_month_selector_gas_only",  # keep your key
             )
-            
-            # Capture savings state
-            capture_dashboard_state({
-                "selected_month": sel_m.strftime("%b %Y") if sel_m else None,
-                "available_months": [m.strftime("%b %Y") for m in sv2["Month"]]
-            })
 
             row_idx = sv2.index[sv2["Month"] == sel_m][0]
             row = sv2.loc[row_idx]
@@ -3063,11 +2348,8 @@ with tab_savings:
             def metric_with_delta(col, label, curr, prev):
                 if prev is None or np.isnan(prev):
                     col.metric(label, f"{curr:,.0f}")
-                    capture_card_data(label, f"{curr:,.0f}", "", "normal")
                 else:
-                    delta_txt = f"{(curr - prev):+,.0f}"
-                    col.metric(label, f"{curr:,.0f}", delta=delta_txt)
-                    capture_card_data(label, f"{curr:,.0f}", delta_txt, "normal")
+                    col.metric(label, f"{curr:,.0f}", delta=f"{(curr - prev):+,.0f}")
 
             metric_with_delta(
                 c1,
@@ -3099,7 +2381,7 @@ with tab_savings:
                 sfig = _area_from_wide(df_m, "Month", ycols, "Solar Savings — Monthly (Blended LESCO+GAS)", palette=pal_savings)
             else:
                 sfig = _line_from_wide(df_m, "Month", ycols, "Solar Savings — Monthly (Blended LESCO+GAS)", palette=pal_savings)
-            render_fig(sfig, key="savings_monthly")
+            render_fig(sfig)
 
             # Cumulative savings (BLENDED)
             sv_cum = sv2.copy()
@@ -3118,7 +2400,7 @@ with tab_savings:
                 sfig2 = _area_from_wide(df_c, "Month", ycols, "Solar Savings — Cumulative (Blended LESCO+GAS)", palette=pal_savings_c)
             else:
                 sfig2 = _line_from_wide(df_c, "Month", ycols, "Solar Savings — Cumulative (Blended LESCO+GAS)", palette=pal_savings_c)
-            render_fig(sfig2, key="savings_cumulative")
+            render_fig(sfig2)
 
             # SOLAR PRODUCTION
             section_title("Solar Production", level=3)
@@ -3138,7 +2420,7 @@ with tab_savings:
                 pfig = _area_from_wide(df_prod_m, "Month", prod_y, "Solar Production — Monthly", palette=pal_prod)
             else:
                 pfig = _line_from_wide(df_prod_m, "Month", prod_y, "Solar Production — Monthly", palette=pal_prod)
-            render_fig(pfig, key="savings_production")
+            render_fig(pfig)
 
             sv_prod_cum = sv2[["Month", "Solar_kWh"]].copy()
             sv_prod_cum["Solar_kWh"] = sv_prod_cum["Solar_kWh"].cumsum()
@@ -3156,7 +2438,7 @@ with tab_savings:
                 pfig2 = _area_from_wide(df_prod_c, "Month", prod_y, "Solar Production — Cumulative", palette=pal_prod_c)
             else:
                 pfig2 = _line_from_wide(df_prod_c, "Month", prod_y, "Solar Production — Cumulative", palette=pal_prod_c)
-            render_fig(pfig2, key="savings_production_cumulative")
+            render_fig(pfig2)
 
             # EXPLANATION (BLENDED METHOD)
             section_title("How these savings are calculated (Blended LESCO + GAS)", level=3)
@@ -3212,13 +2494,6 @@ with tab_expense:
                     index=0,
                     key="expense_layout",
                 )
-                
-                # Capture expenses state
-                capture_dashboard_state({
-                    "expense_series": ycols_pick,
-                    "expense_layout": layout,
-                    "available_expense_series": ycols_all
-                })
                 default_map = {"LESCO Bill (₨)": LESCO_TEAL, "Gas Bill (₨)": GAS_CRIMSON, "Total Expense (₨)": SLATE}
                 base_palette = [default_map.get(c, PURPLE) for c in ycols_pick]
                 pal, custom_map = color_controls(ycols_pick, "expense_colors", base_palette)
@@ -3234,7 +2509,7 @@ with tab_expense:
                 else:
                     fig_e = _area_from_wide(df_exp2, "Month", ycols_pick, "Monthly Expenses (₨)", palette=pal)
                 _apply_common_layout(fig_e, "Monthly Expenses (₨)")
-                render_fig(fig_e, key="expenses_chart")
+                render_fig(fig_e)
 
     if pkr_per_kwh is not None:
         pk_df = pd.DataFrame({"Month": months, "Avg Cost (₨/kWh)": pkr_per_kwh.values}).replace(0, np.nan).dropna()
@@ -3249,7 +2524,7 @@ with tab_expense:
                 fig_c = _lollipop_from_series(pk_df.rename(columns={"Avg Cost (₨/kWh)":"Value"}), "Month", "Value", "Overall Cost (₨/kWh)", palette=pal_cost)
             else:
                 fig_c = _line_from_wide(pk_df, "Month", ["Avg Cost (₨/kWh)"], "Overall Cost (₨/kWh)", palette=pal_cost)
-            render_fig(fig_c, key="expenses_cost")
+            render_fig(fig_c)
 
     st.divider()
     render_export_row("Expenses", "Expenses — Powerhouse Dashboard", "expenses_powerhouse")
@@ -3327,7 +2602,7 @@ with tab_prodcons:
                         plot_bgcolor="#ffffff", paper_bgcolor="#ffffff",
                         font=dict(color=TEXT_PRIMARY, size=13),
                     )
-                render_fig(fig_pc, key="prodcons_chart")
+                render_fig(fig_pc)
 
         ycols_eff_all = [c for c in [c_eff, c_pkrkg] if c]
         if ycols_eff_all:
@@ -3351,7 +2626,7 @@ with tab_prodcons:
                     else:
                         metric0 = picked[0]
                         fig_eff = _lollipop_from_series(df2.rename(columns={metric0: "Value"}), "Month", "Value", f"{title_prefix} — {metric0}", palette=pal[:1])
-                    render_fig(fig_eff, key="prodcons_efficiency")
+                    render_fig(fig_eff)
 
     render_prod_cons(blocks.get("PETPAK PVC"), "PETPAK", brand="PETPAK")
     render_prod_cons(blocks.get("GPAK PVC"), "GPAK", brand="GPAK")
@@ -3459,7 +2734,7 @@ with tab_gas:
 
                     fig_use.update_yaxes(title_text="MMBtu", ticksuffix=" MMBtu")
                     _apply_common_layout(fig_use, title_use)
-                    render_fig(fig_use, key="gas_usage")
+                    render_fig(fig_use)
 
         dfg = None
         if c_total_gas is None and c_gas_rate is None:
@@ -3513,7 +2788,7 @@ with tab_gas:
                     plot_bgcolor="#ffffff", paper_bgcolor="#ffffff",
                     font=dict(color=TEXT_PRIMARY, size=13),
                 )
-                render_fig(fig_g, key="gas_generation")
+                render_fig(fig_g)
 
         with st.expander("Show gas consumption data table", expanded=False):
             if dfg is not None and not dfg.empty:
@@ -3587,15 +2862,10 @@ with tab_forecast:
         def _metrics_row(total, solar, gas, lesco, rental, label):
             c1,c2,c3,c4,c5 = st.columns(5)
             c1.metric(f"{label}: Total (kWh)", f"{total:,.0f}")
-            capture_card_data(f"{label}: Total (kWh)", f"{total:,.0f}", "", "normal")
             c2.metric("Solar (kWh)",  f"{solar:,.0f}", delta=f"{(solar/max(total,1))*100:,.1f}% share")
-            capture_card_data("Solar (kWh)", f"{solar:,.0f}", f"{(solar/max(total,1))*100:,.1f}% share", "normal")
             c3.metric("Gas (kWh)",    f"{gas:,.0f}",   delta=f"{(gas/max(total,1))*100:,.1f}% share")
-            capture_card_data("Gas (kWh)", f"{gas:,.0f}", f"{(gas/max(total,1))*100:,.1f}% share", "normal")
             c4.metric("LESCO (kWh)",  f"{lesco:,.0f}", delta=f"{(lesco/max(total,1))*100:,.1f}% share")
-            capture_card_data("LESCO (kWh)", f"{lesco:,.0f}", f"{(lesco/max(total,1))*100:,.1f}% share", "normal")
             c5.metric("Rental (kWh)", f"{rental:,.0f}",delta=f"{(rental/max(total,1))*100:,.1f}% share")
-            capture_card_data("Rental (kWh)", f"{rental:,.0f}", f"{(rental/max(total,1))*100:,.1f}% share", "normal")
 
         def _table_chart(df_fx, title, cmap):
             st.dataframe(
@@ -3631,7 +2901,7 @@ with tab_forecast:
                              title=title, color="Source", color_discrete_map=cmap)
                 fig.update_traces(textposition="inside", textinfo="percent+label+value")
             _apply_common_layout(fig, title)
-            render_fig(fig, key="forecast_chart")
+            render_fig(fig)
 
         # ---------- next month target ----------
         last_dt = pd.to_datetime(selector_months[-1])
@@ -3751,7 +3021,6 @@ with tab_forecast:
                     elif "compute_solar_savings" in globals():
                         sv = compute_solar_savings(solar_kwh, baseline="LESCO")
                         st.metric("Estimated Solar Savings (PKR)", f"{sv:,.0f}")
-                        capture_card_data("Estimated Solar Savings (PKR)", f"{sv:,.0f}", "", "normal")
                     else:
                         st.info("Attach your cost/savings function (e.g., calc_costs_pkrs or compute_solar_savings) to display numbers here.")
                 except Exception as e:
@@ -3820,7 +3089,6 @@ with tab_forecast:
                     elif "compute_solar_savings" in globals():
                         sv = compute_solar_savings(solar_kwh, baseline="LESCO")
                         st.metric("Estimated Solar Savings (PKR)", f"{sv:,.0f}")
-                        capture_card_data("Estimated Solar Savings (PKR)", f"{sv:,.0f}", "", "normal")
                     else:
                         st.info("Attach your cost/savings function to display numbers here.")
                 except Exception as e:
@@ -3913,7 +3181,7 @@ with tab_compare:
                         fig_cmp.update_yaxes(title_text=unit, ticksuffix=f" {unit}")
 
                     _apply_common_layout(fig_cmp, title)
-                    render_fig(fig_cmp, key="comparison_chart")
+                    render_fig(fig_cmp)
 
                 elif chart_type == "Donut (by month)":
                     valid_rows = df_cmp.dropna(subset=labels, how="all")
@@ -3953,7 +3221,7 @@ with tab_compare:
                                                   outsidetextfont=dict(color="#111827"),
                                                   hovertemplate="%{label}: %{value:,.0f} (" + unit + ") — %{percent}")
                             _apply_common_layout(fig_pie, fig_pie.layout.title.text)
-                            render_fig(fig_pie, key="comparison_pie")
+                            render_fig(fig_pie)
 
                 with st.expander("Show comparison data table", expanded=False):
                     st.dataframe(df_cmp)
@@ -3985,7 +3253,7 @@ with tab_data:
 # ───────────────────────────────────────────────────────────────────────────────
 with tab_report:
     begin_section("Report")
-    section_title("Consolidated Report (Overview → Comparison)", level=2)
+    section_title("Consolidated Report (Overview → Gas Consumption)", level=2)
 
     section_order = [
         "Overview",
@@ -3994,7 +3262,6 @@ with tab_report:
         "Expenses",
         "Production vs Consumption",
         "Gas Consumption",
-        "Comparison",
     ]
 
     st.caption("This page compiles all charts from the tabs below. Downloads export the whole page in one file.")
@@ -4002,34 +3269,7 @@ with tab_report:
     any_content = False
     for sec in section_order:
         figs = SECTION_FIGS.get(sec, [])
-        metrics = SECTION_METRICS.get(sec, [])
         st.markdown(f"#### {sec}")
-        
-        # Show cards if available
-        if metrics:
-            st.markdown("**Key Performance Indicators**")
-            cols = st.columns(min(len(metrics), 4))
-            for i, metric in enumerate(metrics):
-                col_idx = i % 4
-                with cols[col_idx]:
-                    delta_color = metric.get("delta_color", "normal")
-                    if delta_color == "inverse":
-                        # For expense/cost metrics: red for decrease (good), green for increase (bad)
-                        if str(metric.get("delta", "")).startswith("-"):
-                            delta_color_display = "normal"
-                        else:
-                            delta_color_display = "inverse"
-                    else:
-                        delta_color_display = delta_color
-                    
-                    st.metric(
-                        metric.get("label", ""),
-                        metric.get("value", ""),
-                        metric.get("delta", ""),
-                        delta_color=delta_color_display
-                    )
-            st.write("")
-        
         if not figs:
             st.info(f"No charts captured yet from **{sec}**. Open that tab once to populate its visuals.")
             st.write("")
@@ -4042,7 +3282,7 @@ with tab_report:
                 fig_copy = fig
             if not (getattr(fig_copy, "layout", None) and getattr(fig_copy.layout, "title", None) and getattr(fig_copy.layout.title, "text", None)):
                 fig_copy.update_layout(title=f"{sec} — Figure {i}")
-            render_fig(fig_copy, key="report_chart")  # captured into SECTION_FIGS["Report"]
+            render_fig(fig_copy)  # captured into SECTION_FIGS["Report"]
             any_content = True
 
         st.markdown("---")
