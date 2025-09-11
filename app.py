@@ -3782,10 +3782,11 @@ with tab_report:
         st.warning("No visuals yet. Open the tabs above first, then return.")
 
     section_title("Export Consolidated Report", level=2)
-    render_export_row("Report", "Consolidated Report — Overview to Gas", "powerhouse_report_all")
+    render_export_row("Report", "Consolidated Report — Overview to Gas", "powerplant_report_all")
 
 # Always show footer at the bottom
 render_footer_ui()
+
 
 
 
