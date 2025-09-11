@@ -1360,7 +1360,7 @@ def _report_collect_figs():
             pairs.append((sec, f))
     return pairs
 
-def build_report_pdf_same_style(title_text: str) -> bytes:
+def build_report_pdf_same_style(title_text: str, selected_tabs: List[str] = None, tab_data_selections: Dict[str, List[str]] = None) -> bytes:
     # Use a unique name to avoid scoping collisions
     consolidated_sections = [
         "Overview",
@@ -1371,11 +1371,15 @@ def build_report_pdf_same_style(title_text: str) -> bytes:
         "Gas Consumption",
         "Comparison",  # EXCLUDE "Forecasting"
     ]
+    
+    # Use selected tabs if provided, otherwise use all sections
+    if selected_tabs is None:
+        selected_tabs = consolidated_sections
 
     writer = PdfWriter()
     any_page = False
 
-    for sec in section_order:
+    for sec in selected_tabs:
         # Skip empty sections gracefully
         if not SECTION_FIGS.get(sec):
             continue
@@ -1396,7 +1400,7 @@ def build_report_pdf_same_style(title_text: str) -> bytes:
     writer.write(out)
     return out.getvalue()
 
-def build_report_docx(title_text: str) -> bytes:
+def build_report_docx(title_text: str, selected_tabs: List[str] = None, tab_data_selections: Dict[str, List[str]] = None) -> bytes:
     """
     Build a single DOCX that narrates ALL included sections (Overview → Comparison),
     explicitly excluding the Forecasting tab.
@@ -1414,6 +1418,10 @@ def build_report_docx(title_text: str) -> bytes:
         "Gas Consumption",
         "Comparison",
     ]
+    
+    # Use selected tabs if provided, otherwise use all sections
+    if selected_tabs is None:
+        selected_tabs = section_order
 
     doc = Document()
 
@@ -1430,7 +1438,7 @@ def build_report_docx(title_text: str) -> bytes:
     p.paragraph_format.space_after = Pt(8)
 
     # Sections
-    for sec in section_order:
+    for sec in selected_tabs:
         figs = SECTION_FIGS.get(sec, [])
         if not figs:
             continue
@@ -1473,7 +1481,7 @@ def build_report_docx(title_text: str) -> bytes:
     return buf.getvalue()
 
 
-def build_report_ppt_brand(title_text: str) -> bytes:
+def build_report_ppt_brand(title_text: str, selected_tabs: List[str] = None, tab_data_selections: Dict[str, List[str]] = None) -> bytes:
     """
     Build a branded PPT deck for ALL included sections (Overview → Comparison),
     explicitly excluding the Forecasting tab.
@@ -1491,10 +1499,14 @@ def build_report_ppt_brand(title_text: str) -> bytes:
         "Gas Consumption",
         "Comparison",
     ]
+    
+    # Use selected tabs if provided, otherwise use all sections
+    if selected_tabs is None:
+        selected_tabs = section_order
 
     # Flatten all figures in order
     figs = []
-    for sec in section_order:
+    for sec in selected_tabs:
         sec_figs = SECTION_FIGS.get(sec, [])
         for f in sec_figs:
             figs.append((sec, f))
@@ -1532,140 +1544,17 @@ def build_report_ppt_brand(title_text: str) -> bytes:
     prs.save(out)
     return out.getvalue()
 
-def build_report_docx(title_text: str) -> bytes:
-    """
-    Build a single DOCX for ALL included sections (Overview → Comparison),
-    explicitly EXCLUDING the Forecasting tab.
-    """
-    if not _DOCX_OK:
-        raise RuntimeError("python-docx not installed. Please run: pip install python-docx")
-
-    section_order = [
-        "Overview",
-        "Energy Sources",
-        "Solar Savings",
-        "Expenses",
-        "Production vs Consumption",
-        "Gas Consumption",
-        "Comparison",
-    ]
-
-    doc = Document()
-
-    # Title
-    t = doc.add_paragraph()
-    r = t.add_run(title_text)
-    r.bold = True
-    r.font.size = Pt(16)
-    t.alignment = WD_ALIGN_PARAGRAPH.CENTER
-
-    # Intro
-    p = doc.add_paragraph(_intro_for_section(title_text))
-    p.paragraph_format.space_after = Pt(8)
-
-    # Sections & figures
-    for sec in section_order:
-        figs = SECTION_FIGS.get(sec, [])
-        if not figs:
-            continue
-
-        sh = doc.add_paragraph()
-        sr = sh.add_run(sec)
-        sr.bold = True
-        sr.font.size = Pt(14)
-
-        for idx, fig in enumerate(figs, start=1):
-            # Heading per figure
-            ftitle = (fig.layout.title.text
-                      if getattr(fig, "layout", None) and getattr(fig.layout, "title", None)
-                      else f"{sec} — Figure {idx}")
-            fh = doc.add_paragraph()
-            fr = fh.add_run(f"{idx}. {ftitle}")
-            fr.bold = True
-            fr.font.size = Pt(12)
-
-            # Narrative bullets per trace
-            traces = list(getattr(fig, "data", []))
-            if not traces:
-                doc.add_paragraph("• No chart data available for this figure.")
-                continue
-            for tr in traces:
-                desc = _describe_trace(tr)
-                doc.add_paragraph(f"• {desc}")
-
-            # Helpful note for stacked totals
-            doc.add_paragraph("• For stacked bars, combined totals are labeled on top where applicable.")
-
-    # Outro
-    doc.add_paragraph(_outro_note())
-
-    buf = io.BytesIO()
-    doc.save(buf)
-    return buf.getvalue()
-
-
-def build_report_ppt_brand(title_text: str) -> bytes:
-    """
-    Build a branded PPT for ALL included sections (Overview → Comparison),
-    explicitly EXCLUDING the Forecasting tab.
-    """
-    if not _PPTX_OK:
-        raise RuntimeError("python-pptx not installed. Please run: pip install python-pptx")
-
-    section_order = [
-        "Overview",
-        "Energy Sources",
-        "Solar Savings",
-        "Expenses",
-        "Production vs Consumption",
-        "Gas Consumption",
-        "Comparison",
-    ]
-
-    # Flatten figs in order
-    figs = []
-    for sec in section_order:
-        for f in SECTION_FIGS.get(sec, []):
-            figs.append((sec, f))
-
-    if not figs:
-        raise RuntimeError("No charts found to export. Open tabs once, or ensure SECTION_FIGS is populated.")
-
-    # Slides: 1 title + (2 per figure) + 1 conclusion
-    total = 1 + 2*len(figs) + 1
-    idx = 1
-
-    prs = _ppt_init()
-    _ppt_add_title_slide(prs, title_text, idx, total); idx += 1
-
-    for (sec, fig) in figs:
-        caption = (fig.layout.title.text
-                   if getattr(fig, "layout", None) and getattr(fig.layout, "title", None)
-                   else sec)
-        _ppt_add_graph_slide(prs, fig, caption, idx, total); idx += 1
-        _ppt_add_explain_slide(prs, caption, _figure_summary_points(fig), idx, total); idx += 1
-
-    _ppt_add_conclusion(prs, [
-        "Sustain reliability by addressing sources with the highest variance.",
-        "Prioritize solar utilization where yield and tariff differentials are favorable.",
-        "Investigate cost outliers (₨/kWh) and kWh/kg to spot efficiency opportunities.",
-        "Align next month’s targets to the median of the trailing six months."
-    ], idx, total)
-
-    out = io.BytesIO()
-    prs.save(out)
-    return out.getvalue()
 
 # ───────────────────────────────────────────────────────────────────────────────
 
 # Helper to draw a per-tab Download buttons in ONE ROW (PDF • DOCX • PPT)
-def render_export_row(section_key: str, title_text: str, fname_slug: str):
+def render_export_row(section_key: str, title_text: str, fname_slug: str, selected_tabs: List[str] = None, tab_data_selections: Dict[str, List[str]] = None):
     c1, c2, c3 = st.columns(3, gap="small")
     is_report = (section_key.strip().lower() == "report")
 
     with c1:
         try:
-            pdf_bytes = build_report_pdf_same_style(title_text) if is_report \
+            pdf_bytes = build_report_pdf_same_style(title_text, selected_tabs, tab_data_selections) if is_report \
                         else build_section_pdf(section_key, title_text, PETPAK_LOGO, GPAK_LOGO)
             st.download_button(
                 label="Download PDF",
@@ -1680,7 +1569,7 @@ def render_export_row(section_key: str, title_text: str, fname_slug: str):
 
     with c2:
         try:
-            docx_bytes = build_report_docx(title_text) if is_report \
+            docx_bytes = build_report_docx(title_text, selected_tabs, tab_data_selections) if is_report \
                          else build_section_docx(section_key, title_text)
             st.download_button(
                 label="Download DOCX",
@@ -1695,7 +1584,7 @@ def render_export_row(section_key: str, title_text: str, fname_slug: str):
 
     with c3:
         try:
-            ppt_bytes = build_report_ppt_brand(title_text) if is_report \
+            ppt_bytes = build_report_ppt_brand(title_text, selected_tabs, tab_data_selections) if is_report \
                         else build_section_ppt_brand(section_key, title_text)
             st.download_button(
                 label="Download PPT",
@@ -3698,7 +3587,8 @@ with tab_report:
     begin_section("Report")
     section_title("Consolidated Report (Overview → Gas Consumption)", level=2)
 
-    section_order = [
+    # Available sections
+    all_sections = [
         "Overview",
         "Energy Sources", 
         "Solar Savings",
@@ -3709,15 +3599,96 @@ with tab_report:
     ]
 
     st.caption("This page compiles all charts from the tabs below. Downloads export the whole page in one file.")
+    
+    # Tab selection interface
+    st.markdown("### Select Tabs to Include in Report")
+    selected_tabs = st.multiselect(
+        "Choose which tabs to include in the report:",
+        options=all_sections,
+        default=all_sections,  # Default to all tabs
+        key="report_tab_selector"
+    )
+    
+    if not selected_tabs:
+        st.warning("Please select at least one tab to include in the report.")
+        st.stop()
+    
+    # Data selection for each selected tab
+    st.markdown("### Select Data Components for Each Tab")
+    tab_data_selections = {}
+    
+    for tab in selected_tabs:
+        st.markdown(f"#### {tab}")
+        
+        # Get available data for this tab
+        figs = SECTION_FIGS.get(tab, [])
+        cards_data = SECTION_CARDS.get(tab, [])
+        
+        # Available data options for this tab
+        available_options = []
+        
+        # Check for cards data and show preview
+        if cards_data:
+            st.write("**Available Cards:**")
+            for i, card_group in enumerate(cards_data):
+                if isinstance(card_group, dict) and 'cards' in card_group:
+                    card_section_title = card_group.get('title', '')
+                    cards = card_group.get('cards', [])
+                    if card_section_title and cards:
+                        available_options.append(card_section_title)
+                        # Show preview of cards
+                        st.write(f"  • **{card_section_title}** ({len(cards)} cards)")
+                        for card in cards[:3]:  # Show first 3 cards as preview
+                            st.write(f"    - {card.get('label', 'Unknown')}: {card.get('value', 'N/A')}")
+                        if len(cards) > 3:
+                            st.write(f"    - ... and {len(cards) - 3} more cards")
+                elif card_group and len(card_group) > 0:
+                    available_options.append("Metric Cards")
+                    st.write(f"  • **Metric Cards** ({len(card_group)} cards)")
+                    for card in card_group[:3]:  # Show first 3 cards as preview
+                        st.write(f"    - {card.get('label', 'Unknown')}: {card.get('value', 'N/A')}")
+                    if len(card_group) > 3:
+                        st.write(f"    - ... and {len(card_group) - 3} more cards")
+        else:
+            st.write("**No cards available** - Open this tab first to populate cards")
+        
+        # Check for charts
+        if figs:
+            available_options.append("Charts")
+            st.write(f"**Charts:** {len(figs)} chart(s) available")
+        else:
+            st.write("**No charts available** - Open this tab first to populate charts")
+        
+        if not available_options:
+            st.info(f"No data available for {tab}. Open that tab first to populate its visuals.")
+            continue
+        
+        # Create selection for this tab
+        tab_data_selections[tab] = st.multiselect(
+            f"Select data components for {tab}:",
+            options=available_options,
+            default=available_options,  # Default to all available
+            key=f"report_data_selector_{tab.lower().replace(' ', '_')}"
+        )
+        
+        st.write("---")  # Separator between tabs
 
+    # Generate report based on selections
+    st.markdown("---")
+    st.markdown("## 📊 Report Preview")
     any_content = False
-    for sec in section_order:
+    
+    for sec in selected_tabs:
+        if sec not in tab_data_selections or not tab_data_selections[sec]:
+            continue
+            
         figs = SECTION_FIGS.get(sec, [])
         cards_data = SECTION_CARDS.get(sec, [])
         
-        st.markdown(f"#### {sec}")
+        st.markdown(f"### {sec}")
         
-        # Show cards if they exist for this section
+        # Show cards if they exist for this section and are selected
+        cards_shown = False
         if cards_data:
             for card_group in cards_data:
                 if not card_group:
@@ -3729,19 +3700,28 @@ with tab_report:
                     card_section_title = card_group.get('title', '')
                 else:
                     cards = card_group
-                    card_section_title = ''
+                    card_section_title = 'Metric Cards'
                 
-                if not cards:
+                if not cards or len(cards) == 0:
+                    continue
+                
+                # Check if this card group is selected
+                if card_section_title and card_section_title not in tab_data_selections[sec]:
+                    continue
+                if not card_section_title and "Metric Cards" not in tab_data_selections[sec]:
                     continue
                 
                 # Display section title if provided
                 if card_section_title:
                     st.markdown(f"**{card_section_title}**")
                 
-                # Display cards in columns
-                cols = st.columns(len(cards))
+                # Display cards in columns (max 4 per row for better readability)
+                max_cols = min(len(cards), 4)
+                cols = st.columns(max_cols)
+                
                 for i, card in enumerate(cards):
-                    with cols[i]:
+                    col_idx = i % max_cols
+                    with cols[col_idx]:
                         delta_value = card.get('delta', '')
                         delta_color = card.get('delta_color', 'normal')
                         
@@ -3757,41 +3737,46 @@ with tab_report:
                                 label=card['label'],
                                 value=card['value']
                             )
+                    
+                    # If we have more than 4 cards, start a new row
+                    if (i + 1) % max_cols == 0 and i < len(cards) - 1:
+                        cols = st.columns(max_cols)
                 
+                cards_shown = True
                 st.write("")  # Add spacing after cards
         
-        # Show charts
-        if not figs:
+        if not cards_shown and cards_data:
+            st.info(f"Cards available for {sec} but none selected for display.")
+        
+        # Show charts if selected
+        charts_shown = False
+        if figs and "Charts" in tab_data_selections[sec]:
+            for i, fig in enumerate(figs, start=1):
+                try:
+                    fig_copy = go.Figure(fig)
+                except Exception:
+                    fig_copy = fig
+                if not (getattr(fig_copy, "layout", None) and getattr(fig_copy.layout, "title", None) and getattr(fig_copy.layout.title, "text", None)):
+                    fig_copy.update_layout(title=f"{sec} — Figure {i}")
+                render_fig(fig_copy, key=f"report_{sec.lower().replace(' ', '_')}_{i}")  # captured into SECTION_FIGS["Report"]
+                charts_shown = True
+                any_content = True
+        elif figs and "Charts" not in tab_data_selections[sec]:
+            st.info(f"Charts available for {sec} but not selected for display.")
+        
+        if not figs and "Charts" in tab_data_selections[sec]:
             st.info(f"No charts captured yet from **{sec}**. Open that tab once to populate its visuals.")
-            st.write("")
-            continue
-
-        for i, fig in enumerate(figs, start=1):
-            try:
-                fig_copy = go.Figure(fig)
-            except Exception:
-                fig_copy = fig
-            if not (getattr(fig_copy, "layout", None) and getattr(fig_copy.layout, "title", None) and getattr(fig_copy.layout.title, "text", None)):
-                fig_copy.update_layout(title=f"{sec} — Figure {i}")
-            render_fig(fig_copy, key=f"report_{sec.lower().replace(' ', '_')}_{i}")  # captured into SECTION_FIGS["Report"]
+        
+        if cards_shown or charts_shown:
             any_content = True
-
+        
         st.markdown("---")
 
     if not any_content:
         st.warning("No visuals yet. Open the tabs above first, then return.")
 
     section_title("Export Consolidated Report", level=2)
-    render_export_row("Report", "Consolidated Report — Overview to Gas", "powerplant_report_all")
+    render_export_row("Report", "Consolidated Report — Overview to Gas", "powerplant_report_all", selected_tabs, tab_data_selections)
 
 # Always show footer at the bottom
 render_footer_ui()
-
-
-
-
-
-
-
-
-
