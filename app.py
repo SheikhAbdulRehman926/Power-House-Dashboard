@@ -158,7 +158,7 @@ except Exception:
 # PAGE CONFIG
 # ───────────────────────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="Powerhouse Dashboard • PETPAK & GPAK",
+    page_title="PowerPlant Dashboard • PETPAK & GPAK",
     page_icon="ChatGPT Image Sep 8, 2025, 11_11_58 AM.png",  # <-- point to your image file
     layout="wide",
     initial_sidebar_state="expanded",
@@ -660,7 +660,7 @@ def render_footer_ui():
         </style>
         <div class="app-footer">
           <div class="row">
-            <div>Powerhouse Dashboard — PETPAK &amp; GPAK, version 1.0</div>
+            <div>PowerPlant Dashboard — PETPAK &amp; GPAK, version 1.0</div>
             <div>Powered by SARKS</div>
           </div>
         </div>
@@ -3786,6 +3786,7 @@ with tab_report:
 
 # Always show footer at the bottom
 render_footer_ui()
+
 
 
 
