@@ -665,7 +665,7 @@ def render_footer_ui():
         </style>
         <div class="app-footer">
           <div class="row">
-            <div>© 2025•PowerHouse Dashboard — PETPAK &amp; GPAK version • 1.0</div>
+            <div>© 2025•PowerHouse Dashboard — PETPAK &amp; GPAK-version • 2.0</div>
             <div>Powered by SARKS</div>
           </div>
         </div>
@@ -4507,3 +4507,4 @@ with tab_report:
 
 # Always show footer at the bottom
 render_footer_ui()
+
