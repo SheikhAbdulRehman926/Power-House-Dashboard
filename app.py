@@ -2061,6 +2061,12 @@ with st.sidebar:
         st.success("🔄 App restarted! All data cleared. Upload your updated file now.")
         st.rerun()
     
+    st.subheader("Navigation")
+    
+    # About App option
+    if st.button("📋 About App", use_container_width=True, help="View detailed information about the dashboard application"):
+        st.session_state["show_about"] = True
+    
     st.subheader("Access")
 
     # Viewer/Admin toggle is always visible
@@ -2281,6 +2287,655 @@ if gen_mask.any():
 else:
     last_month = months.max() if len(months) else None
 selector_months = list(months.loc[gen_mask]) if gen_mask.any() else list(months.dropna())
+
+# ───────────────────────────────────────────────────────────────────────────────
+# ABOUT APP PAGE
+# ───────────────────────────────────────────────────────────────────────────────
+if st.session_state.get("show_about", False):
+    # Custom CSS matching dashboard theme
+    st.markdown(f"""
+    <style>
+    .about-header {{
+        background: linear-gradient(90deg, {ORANGE_DARK} 0%, {ORANGE_MAIN} 45%, {BLUE_MAIN} 55%, {BLUE_DARK} 100%);
+        padding: 2rem;
+        border-radius: 12px;
+        color: white;
+        text-align: center;
+        margin-bottom: 2rem;
+        box-shadow: 0 4px 16px rgba(0,0,0,.18);
+    }}
+    .feature-card {{
+        background: #fff;
+        padding: 1.5rem;
+        border-radius: 12px;
+        border-left: 6px solid {ORANGE_MAIN};
+        margin: 1rem 0;
+        box-shadow: inset 0 0 0 1px rgba(0,0,0,.08);
+    }}
+    .tech-card {{
+        background: #fff;
+        padding: 1.5rem;
+        border-radius: 12px;
+        border-left: 6px solid {BLUE_MAIN};
+        margin: 1rem 0;
+        box-shadow: inset 0 0 0 1px rgba(0,0,0,.08);
+    }}
+    .ml-card {{
+        background: #fff;
+        padding: 1.5rem;
+        border-radius: 12px;
+        border-left: 6px solid {SOLAR_GOLD};
+        margin: 1rem 0;
+        box-shadow: inset 0 0 0 1px rgba(0,0,0,.08);
+    }}
+    .data-widget {{
+        background: #f8f9fa;
+        padding: 1rem;
+        border-radius: 8px;
+        border: 1px solid rgba(0,0,0,.08);
+        margin: 0.5rem 0;
+        position: relative;
+    }}
+    .data-widget::before {{
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 6px;
+        bottom: 6px;
+        width: 4px;
+        border-radius: 4px;
+        background: linear-gradient(180deg, {ORANGE_MAIN} 0%, {BLUE_MAIN} 100%);
+    }}
+    .metric-box {{
+        background: #fff;
+        padding: 1rem;
+        border-radius: 8px;
+        border: 1px solid rgba(0,0,0,.08);
+        text-align: center;
+        margin: 0.5rem;
+        position: relative;
+    }}
+    .metric-box::before {{
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 6px;
+        bottom: 6px;
+        width: 4px;
+        border-radius: 4px;
+        background: linear-gradient(180deg, {ORANGE_MAIN} 0%, {BLUE_MAIN} 100%);
+    }}
+    .forecast-showcase {{
+        background: #fff;
+        padding: 1.5rem;
+        border-radius: 12px;
+        border-left: 6px solid {EMERALD};
+        margin: 1rem 0;
+        box-shadow: inset 0 0 0 1px rgba(0,0,0,.08);
+    }}
+    .calculation-step {{
+        background: #f8f9fa;
+        padding: 1rem;
+        border-radius: 8px;
+        border: 1px solid rgba(0,0,0,.08);
+        margin: 0.5rem 0;
+        font-family: monospace;
+        font-size: 0.95rem;
+    }}
+    .color-solar {{ color: {SOLAR_GOLD}; }}
+    .color-gas {{ color: {EMERALD}; }}
+    .color-lesco {{ color: {LESCO_TEAL}; }}
+    .color-rental {{ color: {RENTAL_GREEN}; }}
+    .color-orange {{ color: {ORANGE_MAIN}; }}
+    .color-blue {{ color: {BLUE_MAIN}; }}
+    </style>
+    """, unsafe_allow_html=True)
+    
+    # Header Section with Dashboard Colors
+    st.markdown(f"""
+    <div class="about-header">
+        <h1 style="margin: 0; font-size: 2.5rem;">PowerHouse Dashboard</h1>
+        <h3 style="margin: 0.5rem 0 0 0; font-weight: 300;">Professional Energy Management Solution</h3>
+        <p style="margin: 1rem 0 0 0; font-size: 1.1rem; opacity: 0.9;">Comprehensive analytics and forecasting platform for industrial power generation</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Application Overview with styled card
+    st.markdown(f"""
+    <div class="feature-card">
+        <h2 style="color: {ORANGE_MAIN}; margin-top: 0;">Application Overview</h2>
+        <p style="font-size: 1.1rem; line-height: 1.6;">
+        The PowerHouse Dashboard is a comprehensive energy management and analytics platform designed for industrial power generation facilities. 
+        This application provides monitoring, analysis, and forecasting capabilities for multiple energy sources including solar, gas, 
+        LESCO (grid), and rental power generation systems.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Key Features Section with colored cards
+    st.markdown("## Key Features")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown(f"""
+        <div class="feature-card">
+            <h3 style="color: {ORANGE_MAIN}; margin-top: 0;">Data Management</h3>
+            <div class="data-widget">
+                <strong>Excel Integration:</strong> Upload and process Excel data files
+            </div>
+            <div class="data-widget">
+                <strong>Data Updates:</strong> Refresh and cache management
+            </div>
+            <div class="data-widget">
+                <strong>Multi-source Data:</strong> Support for multiple energy sources
+            </div>
+            <div class="data-widget">
+                <strong>Historical Analysis:</strong> Track historical data patterns
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown(f"""
+        <div class="feature-card">
+            <h3 style="color: {ORANGE_MAIN}; margin-top: 0;">Analytics & Reporting</h3>
+            <div class="data-widget">
+                <strong>Interactive Charts:</strong> Dynamic visualizations with multiple chart types
+            </div>
+            <div class="data-widget">
+                <strong>Export Capabilities:</strong> PDF, DOCX, and PPT export functionality
+            </div>
+            <div class="data-widget">
+                <strong>Customizable Views:</strong> Flexible data filtering options
+            </div>
+            <div class="data-widget">
+                <strong>Performance Metrics:</strong> Efficiency and cost analysis
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown(f"""
+        <div class="feature-card">
+            <h3 style="color: {ORANGE_MAIN}; margin-top: 0;">Forecasting Engine</h3>
+            <div class="data-widget">
+                <strong>Naive Bayes Algorithm:</strong> Machine learning forecasting
+            </div>
+            <div class="data-widget">
+                <strong>Auto & Manual Modes:</strong> Flexible prediction methods
+            </div>
+            <div class="data-widget">
+                <strong>Sensitivity Controls:</strong> Adjustable forecasting parameters
+            </div>
+            <div class="data-widget">
+                <strong>Multi-metric Support:</strong> Forecasting across energy sources
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown(f"""
+        <div class="feature-card">
+            <h3 style="color: {ORANGE_MAIN}; margin-top: 0;">User Interface</h3>
+            <div class="data-widget">
+                <strong>Role-based Access:</strong> Viewer and Administrator modes
+            </div>
+            <div class="data-widget">
+                <strong>Responsive Design:</strong> Optimized for various screen sizes
+            </div>
+            <div class="data-widget">
+                <strong>Professional Layout:</strong> Clean, intuitive interface
+            </div>
+            <div class="data-widget">
+                <strong>Color Customization:</strong> Brand-consistent color schemes
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    # Technical Architecture with styled cards
+    st.markdown("## Technical Architecture")
+    
+    tech_col1, tech_col2 = st.columns(2)
+    
+    with tech_col1:
+        st.markdown(f"""
+        <div class="tech-card">
+            <h3 style="color: {BLUE_MAIN}; margin-top: 0;">Frontend Framework</h3>
+            <div class="data-widget">
+                <strong>Streamlit:</strong> Web application interface
+            </div>
+            <div class="data-widget">
+                <strong>Plotly:</strong> Interactive data visualizations
+            </div>
+            <div class="data-widget">
+                <strong>Custom CSS:</strong> Professional styling
+            </div>
+        </div>
+        
+        <div class="tech-card">
+            <h3 style="color: {BLUE_MAIN}; margin-top: 0;">Data Processing</h3>
+            <div class="data-widget">
+                <strong>Pandas:</strong> Data manipulation and analysis
+            </div>
+            <div class="data-widget">
+                <strong>NumPy:</strong> Numerical computations
+            </div>
+            <div class="data-widget">
+                <strong>Openpyxl:</strong> Excel file handling
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with tech_col2:
+        st.markdown(f"""
+        <div class="tech-card">
+            <h3 style="color: {BLUE_MAIN}; margin-top: 0;">Machine Learning</h3>
+            <div class="data-widget">
+                <strong>Scikit-learn:</strong> Naive Bayes implementation
+            </div>
+            <div class="data-widget">
+                <strong>Gaussian NB:</strong> Forecasting algorithm
+            </div>
+            <div class="data-widget">
+                <strong>Quartile Binning:</strong> Variable discretization
+            </div>
+        </div>
+        
+        <div class="tech-card">
+            <h3 style="color: {BLUE_MAIN}; margin-top: 0;">Export & Reporting</h3>
+            <div class="data-widget">
+                <strong>ReportLab:</strong> PDF generation
+            </div>
+            <div class="data-widget">
+                <strong>Python-docx:</strong> Word document creation
+            </div>
+            <div class="data-widget">
+                <strong>Python-pptx:</strong> PowerPoint presentations
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    # Naive Bayes Forecasting Showcase
+    st.markdown("## Auto Forecasting - Naive Bayes Implementation")
+    
+    st.markdown(f"""
+    <div class="ml-card">
+        <h3 style="color: {SOLAR_GOLD}; margin-top: 0;">Algorithm Overview</h3>
+        <p style="font-size: 1.1rem; line-height: 1.6;">
+        The application employs a <strong>Gaussian Naive Bayes</strong> classifier for automated energy generation forecasting. 
+        This machine learning approach provides predictions based on historical patterns and feature variables.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Detailed Forecasting Showcase
+    st.markdown("### How Naive Bayes Forecasting Works - Step by Step")
+    
+    st.markdown(f"""
+    <div class="forecast-showcase">
+        <h3 style="color: {EMERALD}; margin-top: 0;">Real Forecasting Calculation Example</h3>
+        <p style="font-size: 1.1rem; margin-bottom: 1rem;">
+        Here's how the system calculates the next month's energy generation forecast:
+        </p>
+        
+        <h4 style="color: {ORANGE_MAIN}; margin-top: 1.5rem;">Step 1: Data Preparation</h4>
+        <div class="calculation-step">
+# Historical Data (Last 6 months)
+Month Index: [1, 2, 3, 4, 5, 6]
+Total kWh: [45000, 52000, 48000, 55000, 50000, 53000]
+Solar kWh: [15000, 18000, 16000, 20000, 17000, 19000]
+Gas kWh: [20000, 22000, 20000, 23000, 21000, 22000]
+LESCO kWh: [8000, 9000, 9000, 10000, 9000, 10000]
+Rental kWh: [2000, 3000, 3000, 2000, 3000, 2000]
+
+# Target: Next month's Total kWh (Month 7)
+        </div>
+        
+        <h4 style="color: {ORANGE_MAIN}; margin-top: 1.5rem;">Step 2: Quartile Binning</h4>
+        <div class="calculation-step">
+# Calculate quartiles for Total kWh
+Q1 (25%): 48000 kWh
+Q2 (50%): 51000 kWh  
+Q3 (75%): 52500 kWh
+Q4 (100%): 55000 kWh
+
+# Bin historical values
+Month 1: 45000 → Bin 0 (Low)
+Month 2: 52000 → Bin 2 (High)
+Month 3: 48000 → Bin 0 (Low)
+Month 4: 55000 → Bin 3 (Very High)
+Month 5: 50000 → Bin 1 (Medium)
+Month 6: 53000 → Bin 3 (Very High)
+        </div>
+        
+        <h4 style="color: {ORANGE_MAIN}; margin-top: 1.5rem;">Step 3: Feature Matrix</h4>
+        <div class="calculation-step">
+# Training Features (X)
+Features = [
+    [1, 45000, 15000, 20000, 8000, 2000],   # Month 1
+    [2, 52000, 18000, 22000, 9000, 3000],   # Month 2
+    [3, 48000, 16000, 20000, 9000, 3000],   # Month 3
+    [4, 55000, 20000, 23000, 10000, 2000],  # Month 4
+    [5, 50000, 17000, 21000, 9000, 3000],   # Month 5
+    [6, 53000, 19000, 22000, 10000, 2000]   # Month 6
+]
+
+# Target Classes (y_binned)
+y_binned = [0, 2, 0, 3, 1, 3]
+        </div>
+        
+        <h4 style="color: {ORANGE_MAIN}; margin-top: 1.5rem;">Step 4: Model Training</h4>
+        <div class="calculation-step">
+# Train Gaussian Naive Bayes
+clf = GaussianNB()
+clf.fit(X_features, y_binned)
+
+# Model learns:
+# - Mean and variance for each feature in each class
+# - Prior probabilities for each class
+# - Conditional independence assumptions
+        </div>
+        
+        <h4 style="color: {ORANGE_MAIN}; margin-top: 1.5rem;">Step 5: Prediction for Month 7</h4>
+        <div class="calculation-step">
+# New feature vector for Month 7
+x_new = [7, 53000, 19000, 22000, 10000, 2000]  # Using Month 6 values as base
+
+# Get class probabilities
+probabilities = clf.predict_proba(x_new)
+# Example output: [0.1, 0.2, 0.3, 0.4]  # Probabilities for bins 0,1,2,3
+
+# Calculate expected value
+bin_means = [46500, 50000, 52500, 54000]  # Mean values for each bin
+expected_total = Σ(probability_i × bin_mean_i)
+expected_total = 0.1×46500 + 0.2×50000 + 0.3×52500 + 0.4×54000
+expected_total = 4650 + 10000 + 15750 + 21600 = 52000 kWh
+        </div>
+        
+        <h4 style="color: {ORANGE_MAIN}; margin-top: 1.5rem;">Step 6: Share Distribution</h4>
+        <div class="calculation-step">
+# Calculate historical shares
+Solar Share: (15000+18000+16000+20000+17000+19000) / (45000+52000+48000+55000+50000+53000)
+Solar Share: 105000 / 303000 = 0.347 (34.7%)
+
+Gas Share: 128000 / 303000 = 0.422 (42.2%)
+LESCO Share: 55000 / 303000 = 0.182 (18.2%)
+Rental Share: 15000 / 303000 = 0.049 (4.9%)
+
+# Apply shares to forecasted total
+Solar kWh = 52000 × 0.347 = 18,044 kWh
+Gas kWh = 52000 × 0.422 = 21,944 kWh
+LESCO kWh = 52000 × 0.182 = 9,464 kWh
+Rental kWh = 52000 × 0.049 = 2,548 kWh
+        </div>
+        
+        <h4 style="color: {ORANGE_MAIN}; margin-top: 1.5rem;">Final Forecast Results</h4>
+        <div class="calculation-step">
+Month 7 Forecast:
+Total Generation: 52,000 kWh
+├─ Solar: 18,044 kWh (34.7%)
+├─ Gas: 21,944 kWh (42.2%)
+├─ LESCO: 9,464 kWh (18.2%)
+└─ Rental: 2,548 kWh (4.9%)
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Mathematical Foundation with expandable sections
+    st.markdown("### Mathematical Foundation")
+    
+    with st.expander("Naive Bayes Probability Theory", expanded=False):
+        st.markdown("""
+        <div class="ml-card">
+            <h4 style="color: #28a745;">Bayes' Theorem:</h4>
+            <div style="background: #f8f9fa; padding: 1rem; border-radius: 4px; font-family: monospace; font-size: 1.1rem;">
+                P(Class|Features) = P(Features|Class) × P(Class) / P(Features)
+            </div>
+            
+            <h4 style="color: #28a745; margin-top: 1rem;">Gaussian Naive Bayes Assumption:</h4>
+            <div class="data-widget">
+                Each feature is assumed to be normally distributed
+            </div>
+            <div class="data-widget">
+                Features are conditionally independent given the class
+            </div>
+            <div class="data-widget">
+                Probability density function: P(x|μ,σ) = (1/√(2πσ²)) × e^(-(x-μ)²/(2σ²))
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with st.expander("Implementation Details", expanded=False):
+        st.markdown("""
+        <div class="ml-card">
+            <h4 style="color: #28a745;">Feature Engineering:</h4>
+            <div class="data-widget">
+                <strong>1. Temporal Index (m_idx):</strong> Sequential month numbering
+            </div>
+            <div class="data-widget">
+                <strong>2. Historical Values:</strong> Previous month's energy generation data
+            </div>
+            <div class="data-widget">
+                <strong>3. Source Shares:</strong> Percentage distribution across energy sources
+            </div>
+            <div class="data-widget">
+                <strong>4. Target Variable:</strong> Next month's total energy generation
+            </div>
+            
+            <h4 style="color: #28a745; margin-top: 1rem;">Binning Strategy:</h4>
+            <div class="data-widget">
+                Continuous target values are discretized into quartile bins
+            </div>
+            <div class="data-widget">
+                Quartiles: Q1 (25%), Q2 (50%), Q3 (75%), Q4 (100%)
+            </div>
+            <div class="data-widget">
+                Each bin represents a different generation level category
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with st.expander("Calculation Process", expanded=False):
+        st.markdown("""
+        <div class="ml-card">
+            <h4 style="color: #28a745;">Step 1: Data Preparation</h4>
+            <div style="background: #f8f9fa; padding: 1rem; border-radius: 4px; font-family: monospace; font-size: 1rem;">
+                Features = [m_idx, Total_kWh, Solar_kWh, Gas_kWh, LESCO_kWh, Rental_kWh]<br>
+                Target = Total_kWh_next_month (binned into quartiles)
+            </div>
+            
+            <h4 style="color: #28a745; margin-top: 1rem;">Step 2: Model Training</h4>
+            <div style="background: #f8f9fa; padding: 1rem; border-radius: 4px; font-family: monospace; font-size: 1rem;">
+                clf = GaussianNB()<br>
+                clf.fit(X_features, y_binned_target)
+            </div>
+            
+            <h4 style="color: #28a745; margin-top: 1rem;">Step 3: Prediction</h4>
+            <div style="background: #f8f9fa; padding: 1rem; border-radius: 4px; font-family: monospace; font-size: 1rem;">
+                probabilities = clf.predict_proba(new_features)<br>
+                expected_value = Σ(probability_i × mean_value_i)
+            </div>
+            
+            <h4 style="color: #28a745; margin-top: 1rem;">Step 4: Share Distribution</h4>
+            <div style="background: #f8f9fa; padding: 1rem; border-radius: 4px; font-family: monospace; font-size: 1rem;">
+                Solar_kWh = expected_total × historical_solar_share<br>
+                Gas_kWh = expected_total × historical_gas_share<br>
+                LESCO_kWh = expected_total × historical_lesco_share<br>
+                Rental_kWh = expected_total × historical_rental_share
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    # Dashboard Modules with metric boxes
+    st.markdown("## Dashboard Modules")
+    
+    modules_col1, modules_col2 = st.columns(2)
+    
+    with modules_col1:
+        st.markdown(f"""
+        <div class="feature-card">
+            <h3 style="color: {ORANGE_MAIN}; margin-top: 0;">Overview Tab</h3>
+            <div class="metric-box">
+                <strong>Yearly Highlights:</strong> Annual performance summaries
+            </div>
+            <div class="metric-box">
+                <strong>Monthly Composition:</strong> Energy source distribution
+            </div>
+            <div class="metric-box">
+                <strong>Energy Mix Visualization:</strong> Interactive charts
+            </div>
+            <div class="metric-box">
+                <strong>Performance Metrics:</strong> Efficiency statistics
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown(f"""
+        <div class="feature-card">
+            <h3 style="color: {ORANGE_MAIN}; margin-top: 0;">Energy Sources Tab</h3>
+            <div class="metric-box">
+                <strong>Solar Generation:</strong> Photovoltaic system performance
+            </div>
+            <div class="metric-box">
+                <strong>Gas Generation:</strong> Natural gas power output
+            </div>
+            <div class="metric-box">
+                <strong>LESCO Integration:</strong> Grid power consumption
+            </div>
+            <div class="metric-box">
+                <strong>Rental Engine:</strong> Backup power generation
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with modules_col2:
+        st.markdown(f"""
+        <div class="feature-card">
+            <h3 style="color: {ORANGE_MAIN}; margin-top: 0;">Solar Savings Tab</h3>
+            <div class="metric-box">
+                <strong>Cost Analysis:</strong> Solar vs conventional energy costs
+            </div>
+            <div class="metric-box">
+                <strong>Savings Calculation:</strong> Monthly and cumulative savings
+            </div>
+            <div class="metric-box">
+                <strong>ROI Metrics:</strong> Return on investment analysis
+            </div>
+            <div class="metric-box">
+                <strong>Environmental Impact:</strong> Carbon footprint reduction
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown(f"""
+        <div class="feature-card">
+            <h3 style="color: {ORANGE_MAIN}; margin-top: 0;">Forecasting Tab</h3>
+            <div class="metric-box">
+                <strong>Auto Forecasting:</strong> Naive Bayes-based predictions
+            </div>
+            <div class="metric-box">
+                <strong>Manual Forecasting:</strong> User-defined scenarios
+            </div>
+            <div class="metric-box">
+                <strong>Sensitivity Analysis:</strong> Parameter adjustment
+            </div>
+            <div class="metric-box">
+                <strong>Confidence Intervals:</strong> Prediction reliability
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    # Data Flow Architecture
+    st.markdown("## Data Flow Architecture")
+    st.markdown(f"""
+    <div class="tech-card">
+        <div style="background: #f8f9fa; padding: 1.5rem; border-radius: 6px; font-family: monospace; font-size: 1.1rem; text-align: center; color: #495057;">
+            Excel Upload → Data Validation → Feature Engineering →<br>
+            Model Training → Prediction Generation → Visualization →<br>
+            Export/Reporting
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Performance Metrics
+    st.markdown("## Performance & Scalability")
+    
+    perf_col1, perf_col2 = st.columns(2)
+    
+    with perf_col1:
+        st.markdown(f"""
+        <div class="tech-card">
+            <h3 style="color: {BLUE_MAIN}; margin-top: 0;">Optimization Features</h3>
+            <div class="data-widget">
+                <strong>Caching System:</strong> Data caching for performance
+            </div>
+            <div class="data-widget">
+                <strong>Lazy Loading:</strong> On-demand data processing
+            </div>
+            <div class="data-widget">
+                <strong>Memory Management:</strong> Efficient memory usage
+            </div>
+            <div class="data-widget">
+                <strong>Parallel Processing:</strong> Concurrent operations
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with perf_col2:
+        st.markdown(f"""
+        <div class="tech-card">
+            <h3 style="color: {BLUE_MAIN}; margin-top: 0;">Quality Assurance</h3>
+            <div class="data-widget">
+                <strong>Data Validation:</strong> Input validation
+            </div>
+            <div class="data-widget">
+                <strong>Error Handling:</strong> Error management
+            </div>
+            <div class="data-widget">
+                <strong>Fallback Mechanisms:</strong> Graceful degradation
+            </div>
+            <div class="data-widget">
+                <strong>User Feedback:</strong> Status indicators
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    # Security & Access Control
+    st.markdown("## Security & Access Control")
+    st.markdown(f"""
+    <div class="feature-card">
+        <div class="data-widget">
+            <strong>Role-based Access:</strong> Viewer and Administrator privileges
+        </div>
+        <div class="data-widget">
+            <strong>Password Protection:</strong> Administrator authentication
+        </div>
+        <div class="data-widget">
+            <strong>Data Isolation:</strong> Session-based data management
+        </div>
+        <div class="data-widget">
+            <strong>Audit Trail:</strong> User action logging
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Footer with close button at bottom
+    st.markdown("---")
+    st.markdown("""
+    <div style="text-align: center; padding: 2rem; background: #f8f9fa; border-radius: 8px; margin-top: 2rem;">
+        <h4 style="color: #6c757d; margin-bottom: 1rem;">PowerHouse Dashboard v2.0</h4>
+        <p style="color: #6c757d; margin-bottom: 1.5rem;">Professional Energy Management Solution</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Close button at the bottom
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        if st.button("🔙 Return to Dashboard", key="close_about", use_container_width=True, type="primary"):
+            st.session_state["show_about"] = False
+            st.rerun()
+    
+    # Stop execution here to prevent showing tabs
+    st.stop()
 
 # ───────────────────────────────────────────────────────────────────────────────
 # TABS  (FORECASTING inserted before Comparison)
